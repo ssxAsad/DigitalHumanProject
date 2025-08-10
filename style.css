@@ -8,18 +8,16 @@ body, html {
     margin: 0;
     padding: 0;
     width: 100%;
-    /* IMPORTANT: Height is now controlled by a CSS variable set in JS */
-    /* This prevents the layout from breaking when the mobile keyboard appears */
-    height: 100vh; /* Fallback for browsers without JS */
+    height: 100vh; /* Fallback */
     height: calc(var(--vh, 1vh) * 100);
-    overflow: hidden; /* Prevents scrollbars */
+    overflow: hidden;
     font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     
     background-image: url('backgrounds/room.png');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    position: relative; /* Needed for child absolute positioning */
+    position: relative;
 }
 
 /* Container for the 3D canvas */
@@ -30,7 +28,7 @@ body, html {
     position: absolute;
     top: 0;
     left: 0;
-    z-index: 1; /* Places the canvas behind the UI */
+    z-index: 1;
 }
 
 /* =======================================
@@ -39,7 +37,7 @@ body, html {
 .bubble {
     display: none;
     position: absolute;
-    bottom: 120px; /* Default position */
+    bottom: 120px;
     left: 50%;
     transform: translateX(-50%);
     padding: 12px 20px;
@@ -67,6 +65,7 @@ body, html {
     -webkit-text-fill-color: transparent;
 }
 
+
 /* =======================================
    CHAT UI STYLES
    ======================================= */
@@ -75,24 +74,22 @@ body, html {
     bottom: 0;
     left: 0;
     width: 100%;
-    padding: 20px;
     box-sizing: border-box;
     z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 15px;
     align-items: center;
+    
     background: rgba(0, 0, 0, 0.2);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     mask-image: linear-gradient(to top, black 70%, transparent 100%);
     -webkit-mask-image: linear-gradient(to top, black 70%, transparent 100%);
-}
 
-#expression-container {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
+    /* --- THE FIX --- */
+    /* Adds padding that respects the iPhone's home bar safe area. */
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom)) 20px;
 }
 
 #input-container {
@@ -113,15 +110,11 @@ body, html {
     font-size: 16px;
     outline: none;
     transition: border-color 0.3s;
-    -webkit-appearance: none; /* Prevents iOS styling */
+    -webkit-appearance: none;
 }
 
 #chat-input::placeholder {
     color: #aaa;
-}
-
-#chat-input:focus {
-    border-color: #fca311;
 }
 
 .action-button {
@@ -134,8 +127,6 @@ body, html {
     cursor: pointer;
     flex-shrink: 0;
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
-    background-size: 200% 200%;
-    box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
     transition: all 0.3s ease;
 }
 
@@ -150,21 +141,9 @@ body, html {
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
 
-#toggle-text-button {
-    padding: 12px 18px;
-}
-
-#toggle-text-button.toggle-off,
-#mode-toggle-button.toggle-off {
-    background: linear-gradient(45deg, #6c757d, #495057);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    color: #ccc;
-}
-
 /* =======================================
-   MODERN LOADING SCREEN STYLES
+   LOADING SCREEN STYLES
    ======================================= */
-
 #loading-overlay {
     position: fixed;
     top: 0;
@@ -219,29 +198,27 @@ body, html {
 /* =========================================================
    MOBILE RESPONSIVE FIXES
    ========================================================= */
-
-/* These rules apply only to screens 768px wide or smaller */
 @media (max-width: 768px) {
     #chat-container {
-        padding: 10px; /* Tighter padding */
+        padding-top: 10px;
+        padding-left: 10px;
+        padding-right: 10px;
+        /* The bottom padding is handled by the main rule with env() */
         gap: 8px;
     }
 
     #input-container {
-        gap: 5px; /* Tighter buttons */
-        padding: 0 5px;
+        gap: 5px;
     }
 
     #chat-input {
-        padding: 12px 15px; /* Slightly larger tap area */
         font-size: 16px;
     }
 
     .action-button {
-        padding: 12px; /* Make buttons more compact */
+        padding: 12px;
         font-size: 15px;
-        min-width: 44px; /* Ensure minimum tap size */
-        text-align: center;
+        min-width: 44px;
     }
     
     #send-button {
@@ -251,6 +228,7 @@ body, html {
     .bubble {
         max-width: 90%;
         font-size: 15px;
-        bottom: 95px; /* Adjust bubble position */
+        /* Also adjust bubble position to respect the safe area */
+        bottom: calc(95px + env(safe-area-inset-bottom)); 
     }
 }
