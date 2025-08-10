@@ -158,6 +158,18 @@ document.addEventListener('DOMContentLoaded', () => {
     directionalLight.position.set(1, 1, 1).normalize();
     scene.add(directionalLight);
 
+    // --- Window Resize Handler ---
+    window.addEventListener('resize', onWindowResize, false);
+
+    function onWindowResize() {
+        // Update camera aspect ratio
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        // Update renderer size
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+   
 /* =========================================================
    9. VRM LOADING, ANIMATIONS & EXPRESSION HELPERS (SAFE)
    ========================================================= */
@@ -1042,6 +1054,7 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
