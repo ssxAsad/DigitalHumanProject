@@ -637,35 +637,28 @@ function animate() {
         try { mixer.update(delta); } catch(e) {}
     }
 
-    if (currentVrm) {
-        // If there's an expression manager, apply emotions while respecting lip-sync.
-        if (currentVrm.expressionManager) {
-            // Reset other AI-managed expressions to zero (so only activeEmotionName remains)
-            try {
-                aiManagedExpressions.forEach(name => {
-                    if (name !== activeEmotionName) {
-                        try { currentVrm.expressionManager.setValue(name, 0); } catch(e){}
-                    }
-                });
-            } catch (e) {}
-
-            if (isTalking) {
-                // While talking, apply only the non-mouth components of the active emotion (best-effort).
-                try {
-                    if (typeof applyEmotionNonMouth === 'function') {
-                        applyEmotionNonMouth(currentVrm, activeEmotionName, activeEmotionWeight || 1.0);
-                    } else {
-                        // fallback: set expressionManager value, visemes will override mouth immediately after
-                        try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e){}
-                    }
-                } catch (e) {}
-            } else {
-                // Not talking: apply full emotion including mouth
-                try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e){}
+    if (currentVrm && currentVrm.expressionManager) {
+        // First, reset all AI-managed expressions to 0 to prevent conflicts.
+        aiManagedExpressions.forEach(name => {
+            if (name !== activeEmotionName) {
+                try { currentVrm.expressionManager.setValue(name, 0); } catch(e){}
             }
+        });
+
+        if (isTalking) {
+            // When talking, prioritize lip-sync. We stop applying the main emotion
+            // and ensure a neutral 'relaxed' expression is the base.
+            try { currentVrm.expressionManager.setValue('relaxed', 1.0); } catch(e) {}
+            if(activeEmotionName !== 'relaxed') {
+               try { currentVrm.expressionManager.setValue(activeEmotionName, 0); } catch(e) {}
+            }
+
+        } else {
+            // When not talking, apply the current emotion as usual.
+            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e) {}
         }
 
-        // Apply visemes after emotion so visemes override mouth shapes.
+        // Apply visemes on top of the base expression. This will override the mouth shape.
         try { updateVisemesSafe(); } catch (e) {}
 
         try { currentVrm.update(delta); } catch(e) {}
@@ -674,7 +667,6 @@ function animate() {
     try { renderer.render(scene, camera); } catch(e) {}
 }
 animate();
-
 
 /* =========================================================
    11. BUBBLE / UI HELPERS
@@ -709,39 +701,33 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
 
         if (isTextOutputOn) {
+            // Text-only mode logic remains the same
             const textDuration = Math.max(4000, responseText.length * 80);
             showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
-
             isExpressionActive = true;
             activeEmotionName = primaryExpression.name;
             activeEmotionWeight = primaryExpression.weight ?? 1.0;
-
             setTimeout(() => {
                 activeEmotionName = 'relaxed';
                 activeEmotionWeight = 1.0;
                 isExpressionActive = false;
             }, textDuration - 500);
-
             resolve();
             return;
         }
 
-        // Helper: split into small sentences/chunks (keeps punctuation)
         function splitIntoChunks(text) {
-            // split on sentence boundaries but keep short pieces if sentences are long
             const rough = text.match(/[^.!?]+[.!?]?/g) || [text];
             const out = [];
             rough.forEach(sentence => {
                 const trimmed = sentence.trim();
                 if (!trimmed) return;
-                // if sentence too long, cut roughly into 100-char chunks at whitespace
                 if (trimmed.length <= 140) {
                     out.push(trimmed);
                 } else {
                     let s = trimmed;
                     while (s.length > 0) {
                         let piece = s.slice(0, 140);
-                        // try to cut at last space
                         const lastSpace = piece.lastIndexOf(' ');
                         if (lastSpace > 60) piece = piece.slice(0, lastSpace);
                         out.push(piece.trim());
@@ -752,11 +738,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             return out;
         }
 
-        // --- Voice Mode Logic using Netlify Function with chunked requests ---
         const endPlayback = () => {
             audioPlaybackStartTime = 0;
             isTalking = false;
-            // Reset to relaxed after speaking
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
             setAnimation(idleAction);
@@ -766,38 +750,28 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         (async () => {
             try {
                 isTalking = true;
-                if (isGreeting && wavingAction) {
-                    setAnimation(wavingAction);
-                } else {
-                    setAnimation(talkingAction);
-                }
-
                 activeEmotionName = primaryExpression.name;
                 activeEmotionWeight = primaryExpression.weight ?? 1.0;
 
-                // Reset audio/viseme state for the new response.
+                // Reset state for the new response
                 audioPlaybackStartTime = 0;
                 visemeQueue = [];
-                audioQueue = [];
-                currentViseme = { shape: 'sil', time: 0 };
+                audioQueue = []; // Though not used for playback here, clearing is good practice
                 lastAppliedViseme = { shape: 'sil', time: 0 };
 
                 initAudioContext();
-
-                // Break text into chunks and request TTS for each chunk sequentially,
-                // playing each chunk as it arrives to reduce perceived latency.
                 const chunks = splitIntoChunks(responseText);
+                let animationStarted = false;
+                let accumulatedAudioDuration = 0;
+                let nextStartTime = 0;
 
-                // sequentially fetch and play chunks
-                for (let i = 0; i < chunks.length; ++i) {
-                    const chunkText = chunks[i];
-
-                    // call Netlify function to get binary audio
+                for (const chunkText of chunks) {
                     const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             voiceId,
+                            with_visemes: true, // Request visemes from the serverless function
                             payload: {
                                 text: chunkText,
                                 voice_settings: { stability: 0.5, similarity_boost: 0.75 }
@@ -806,77 +780,60 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     });
 
                     if (!ttsResponse.ok) {
-                        // log and abort playback gracefully
-                        const errText = await ttsResponse.text().catch(() => '');
-                        console.error("TTS request failed:", ttsResponse.status, ttsResponse.statusText, errText);
-                        isTalking = false;
-                        endPlayback();
-                        return;
+                        const errText = await ttsResponse.text().catch(() => 'TTS request failed');
+                        throw new Error(errText);
                     }
 
-                    // get binary arrayBuffer for this chunk
-                    const chunkBuffer = await ttsResponse.arrayBuffer();
-
-                    // decode audio chunk (web audio)
-                    let decoded;
-                    try {
-                        decoded = await audioContext.decodeAudioData(chunkBuffer);
-                    } catch (decodeErr) {
-                        // slice fallback (some browsers)
-                        try {
-                            decoded = await audioContext.decodeAudioData(chunkBuffer.slice(0));
-                        } catch (sliceErr) {
-                            console.error("Audio decode failed for chunk:", decodeErr, sliceErr);
-                            isTalking = false;
-                            endPlayback();
-                            return;
-                        }
+                    const data = await ttsResponse.json();
+                    if (!data.audio_base64 || !data.visemes) {
+                        throw new Error("Invalid response from TTS function. Expected audio_base64 and visemes.");
                     }
 
-                    // create source and play; but wait until previous source finishes or schedule overlap
-                    const source = audioContext.createBufferSource();
-                    source.buffer = decoded;
-                    source.connect(audioContext.destination);
+                    // Decode the base64 audio data using the existing helper function
+                    const audioFloat32 = base64ToFloat32Array(data.audio_base64);
+                    const audioBuffer = audioContext.createBuffer(1, audioFloat32.length, 16000); // Assuming 16kHz
+                    audioBuffer.copyToChannel(audioFloat32, 0);
 
-                    // set audioPlaybackStartTime if it's not set (used by viseme timing)
-                    if (audioPlaybackStartTime === 0) audioPlaybackStartTime = audioContext.currentTime;
-
-                    // small strategy: if previous audio is still playing, start right away (allows slight overlap)
-                    // This also keeps your viseme logic working relative to audioPlaybackStartTime
-                    let finishedPromise = new Promise((res) => {
-                        source.onended = () => res();
+                    // Add visemes to the queue with a time offset
+                    data.visemes.forEach(v => {
+                        visemeQueue.push({
+                            shape: v.value.toLowerCase(), // e.g., 'A', 'E', 'I', 'O', 'U', 'sil'
+                            time: v.time + nextStartTime
+                        });
                     });
 
-                    source.start();
-                    // for the first chunk, we want to continue fetching next chunk immediately, not wait full playback
-                    // but to avoid huge concurrency, we await a small time or the chunk to end depending on chunk length
-                    // choose to await min(decoded.duration * 0.35, 1.5) seconds so streaming feels continuous
-                    const waitTime = Math.min(decoded.duration * 0.35, 1.5) * 1000;
-                    await new Promise(r => setTimeout(r, waitTime));
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
 
-                    // continue to next chunk while current chunk may still play — that's intended
-                    // when last chunk is played, we wait for it to finish
-                    if (i === chunks.length - 1) {
-                        // wait for final chunk to end
-                        await finishedPromise;
+                    if (!animationStarted) {
+                        // **FIX 1: Start animation just before the first audio chunk plays**
+                        if (isGreeting && wavingAction) {
+                            setAnimation(wavingAction);
+                        } else {
+                            setAnimation(talkingAction);
+                        }
+                        animationStarted = true;
+                        audioPlaybackStartTime = audioContext.currentTime;
+                        source.start(audioPlaybackStartTime);
+                    } else {
+                        source.start(audioPlaybackStartTime + nextStartTime);
                     }
+
+                    nextStartTime += audioBuffer.duration;
                 }
 
-                // done speaking
-                isTalking = false;
+                // Wait for the final chunk to finish playing
+                await new Promise(r => setTimeout(r, nextStartTime * 1000));
                 endPlayback();
 
             } catch (err) {
-                console.error("Error playing response (chunked):", err);
-                isTalking = false;
+                console.error("Error playing response:", err);
                 endPlayback();
             }
         })();
     });
 }
-
-
-
 
 /* =========================================================
    13. CHAT / API FLOW (Gemini online + local LM Studio)
@@ -1054,6 +1011,7 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
