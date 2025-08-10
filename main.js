@@ -689,41 +689,130 @@ animate();
         }
     }
 
-/* Section 12: ElevenLabs TTS Fetch and Play */
-async function fetchAndPlayTTS(voiceId, payload) {
-    try {
-        console.log("🎤 Sending text to ElevenLabs via Netlify function...");
+/* =========================================================
+   12. PLAY RESPONSE & EXPRESSIONS (handles ws -> audio + visemes)
+   ========================================================= */
+function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
+    return new Promise((resolve) => {
+        const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
 
-        const res = await fetch("/.netlify/functions/elevenlabs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voiceId, payload })
-        });
+        if (isTextOutputOn) {
+            const textDuration = Math.max(4000, responseText.length * 80);
+            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
 
-        if (!res.ok) {
-            const errorText = await res.text();
-            console.error(`❌ ElevenLabs TTS request failed: ${res.status} ${res.statusText}`, errorText);
+            isExpressionActive = true;
+            activeEmotionName = primaryExpression.name;
+            activeEmotionWeight = primaryExpression.weight ?? 1.0;
+
+            setTimeout(() => {
+                activeEmotionName = 'relaxed';
+                activeEmotionWeight = 1.0;
+                isExpressionActive = false;
+            }, textDuration - 500);
+
+            resolve();
             return;
         }
 
-        // Get binary audio data
-        const arrayBuffer = await res.arrayBuffer();
+        // --- Voice Mode Logic using Netlify Function ---
+        const endPlayback = () => {
+            audioPlaybackStartTime = 0;
+            isTalking = false;
 
-        // Create a playable Blob URL
-        const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
-        const audioUrl = URL.createObjectURL(audioBlob);
+            // Reset to relaxed after speaking
+            activeEmotionName = 'relaxed';
+            activeEmotionWeight = 1.0;
+            setAnimation(idleAction);
+            resolve();
+        };
 
-        console.log(`✅ Audio received (${arrayBuffer.byteLength} bytes) — playing now.`);
+        (async () => {
+            try {
+                isTalking = true;
 
-        const audio = new Audio(audioUrl);
-        audio.play().catch(err => {
-            console.error("⚠️ Error playing audio:", err);
-        });
+                if (isGreeting && wavingAction) {
+                    setAnimation(wavingAction);
+                } else {
+                    setAnimation(talkingAction);
+                }
 
-    } catch (err) {
-        console.error("💥 Error in fetchAndPlayTTS:", err);
-    }
+                activeEmotionName = primaryExpression.name;
+                activeEmotionWeight = primaryExpression.weight ?? 1.0;
+
+                // Reset audio/viseme state for the new response.
+                audioPlaybackStartTime = 0;
+                visemeQueue = [];
+                audioQueue = [];
+                currentViseme = { shape: 'sil', time: 0 };
+                lastAppliedViseme = { shape: 'sil', time: 0 };
+
+                initAudioContext();
+
+                // Call our Netlify function to get binary audio back (Netlify will decode base64)
+                const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        voiceId,
+                        payload: {
+                            text: responseText,
+                            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                        }
+                    })
+                });
+
+                if (!ttsResponse.ok) {
+                    // try to show function error in UI and console
+                    const errText = await ttsResponse.text().catch(() => '');
+                    console.error("TTS request failed:", ttsResponse.status, ttsResponse.statusText, errText);
+                    isTalking = false;
+                    endPlayback();
+                    return;
+                }
+
+                // --- SAFELY get binary audio (avoid atob/base64 issues) ---
+                const audioArrayBuffer = await ttsResponse.arrayBuffer();
+
+                // decode into WebAudio buffer
+                let decodedBuffer;
+                try {
+                    decodedBuffer = await audioContext.decodeAudioData(audioArrayBuffer);
+                } catch (decodeErr) {
+                    // Some browsers expect a cloned ArrayBuffer — try a slice fallback
+                    try {
+                        decodedBuffer = await audioContext.decodeAudioData(audioArrayBuffer.slice(0));
+                    } catch (sliceErr) {
+                        console.error("Audio decode failed:", decodeErr, sliceErr);
+                        isTalking = false;
+                        endPlayback();
+                        return;
+                    }
+                }
+
+                // Create source and play
+                const source = audioContext.createBufferSource();
+                source.buffer = decodedBuffer;
+                source.connect(audioContext.destination);
+
+                // mark playback start time for viseme logic (if you later use visemes)
+                if (audioPlaybackStartTime === 0) audioPlaybackStartTime = audioContext.currentTime;
+
+                source.onended = () => {
+                    isTalking = false;
+                    endPlayback();
+                };
+
+                source.start();
+
+            } catch (err) {
+                console.error("Error playing response:", err);
+                isTalking = false;
+                endPlayback();
+            }
+        })();
+    });
 }
+
 
 
 
@@ -903,5 +992,6 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
