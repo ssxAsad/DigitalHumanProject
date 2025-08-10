@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot UI with 3D Avatar</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+          "three/examples/jsm/loaders/GLTFLoader.js": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/loaders/GLTFLoader.js",
+          "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.0.9/build/three-vrm.module.js"
+        }
+      }
+    </script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="thinking-bubble" class="bubble"></div>
+    <div id="text-bubble" class="bubble"></div>
+
+    <div id="chat-container">
+        <div id="input-container">
+            <input type="text" id="chat-input" placeholder="Type a message...">
+            <button id="toggle-text-button" class="action-button">T</button>
+            <button id="send-button" class="action-button">Send</button>
+        </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+
+</body>
+</html>
