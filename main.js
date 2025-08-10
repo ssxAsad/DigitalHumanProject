@@ -985,11 +985,126 @@ async function handleSendMessage() {
             showBubble(textBubble, `<span class="fire-text">Switched to ${apiMode} mode. History cleared.</span>`, 3000);
         }
     });
-
 /* =========================================================
-   15. END OF DOM READY
+   16. LOADING SCREEN ORCHESTRATOR
    ========================================================= */
+
+// This section manages the initial loading sequence of the application,
+// providing visual feedback to the user and ensuring all assets are
+// ready before the main interface is shown.
+
+/**
+ * Overwrites the original loadVRM function to integrate progress updates
+ * with the loading screen UI. It now returns a Promise that resolves
+ * when the model is fully loaded and processed.
+ * @param {string} url - The URL of the VRM model to load.
+ * @returns {Promise<VRM>} A promise that resolves with the loaded VRM object.
+ */
+function loadVRM(url) {
+    return new Promise((resolve, reject) => {
+        loader.load(
+            url,
+            (gltf) => {
+                try {
+                    const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm || null;
+                    if (!vrm) {
+                        const errorMsg = 'Loaded GLTF did not contain a VRM object in userData.';
+                        console.error(errorMsg);
+                        reject(new Error(errorMsg));
+                        return;
+                    }
+
+                    safeRemoveVrmFromScene(currentVrm);
+                    currentVrm = vrm;
+
+                    if (!scene.children.includes(vrm.scene)) {
+                        scene.add(vrm.scene);
+                        console.log('Added new VRM.scene to scene.');
+                    }
+
+                    vrm.scene.rotation.y = Math.PI;
+                    vrm.scene.visible = true;
+                    if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1);
+                    vrm.lookAt.target = camera;
+
+                    aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
+                        ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
+                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'].includes(name))
+                        : [];
+                    
+                    console.log("VRM Model loaded. AI can control:", aiManagedExpressions);
+
+                    setupExpressionBindMaps(vrm);
+                    setupBlinking(vrm);
+                    setupSideGlances(vrm);
+
+                    setTimeout(() => ensureVrmVisible(vrm), 200);
+
+                    resolve(vrm); // Resolve the promise with the VRM object
+
+                } catch (err) {
+                    console.error('Error in loadVRM callback:', err);
+                    reject(err);
+                }
+            },
+            (progress) => {
+                // Update the loading bar based on the model loading progress
+                if (progress.total > 0) {
+                    const pct = Math.round(100.0 * (progress.loaded / progress.total));
+                    progressBar.style.width = pct + '%';
+                    progressText.textContent = `Loading Model... ${pct}%`;
+                } else {
+                    progressText.textContent = `Loading Model...`; // Fallback if total size is unknown
+                }
+            },
+            (error) => {
+                console.error('Error loading VRM:', error);
+                progressText.textContent = 'Error loading model!';
+                reject(error);
+            }
+        );
+    });
+}
+
+/**
+ * The main initialization function. It orchestrates the loading of the model
+ * and its animations, updates the UI accordingly, and hides the loading
+ * screen upon completion.
+ */
+async function initializeScene() {
+    try {
+        // 1. Load the VRM model and wait for it to complete.
+        await loadVRM('./models/model.vrm');
+        
+        // 2. Update UI to reflect that animations are now loading.
+        progressText.textContent = 'Loading Animations...';
+        progressBar.style.width = '100%'; // Show full bar for this phase
+
+        // 3. Load all necessary animations and wait for them to complete.
+        await loadAnimations();
+        
+        // 4. Everything is loaded. Start the main render loop.
+        animate();
+
+        // 5. Hide the loading screen with a smooth fade-out.
+        loadingOverlay.classList.add('hidden');
+        
+        // After the fade-out transition, set display to 'none' to remove it from the layout.
+        setTimeout(() => {
+            loadingOverlay.style.display = 'none';
+        }, 500); // This duration should match the CSS transition time.
+
+    } catch (error) {
+        console.error("Initialization failed:", error);
+        progressText.textContent = "Failed to initialize the scene. Please refresh.";
+    }
+}
+
+// Start the entire application by calling the initialization orchestrator.
+initializeScene();
+
 }); // end DOMContentLoaded
+
 
 
 
