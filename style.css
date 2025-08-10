@@ -221,3 +221,40 @@ body, html {
     opacity: 0;
     pointer-events: none;
 }
+
+
+/* =========================================================
+   NEW: MOBILE RESPONSIVE STYLES
+   ========================================================= */
+
+/* These rules apply only to screens 768px wide or smaller */
+@media (max-width: 768px) {
+    #chat-container {
+        padding: 15px; /* Reduce padding on smaller screens */
+        gap: 10px;
+    }
+
+    #input-container {
+        gap: 8px; /* Reduce gap between buttons */
+    }
+
+    #chat-input {
+        padding: 10px 15px;
+        font-size: 14px;
+    }
+
+    .action-button {
+        padding: 10px 15px; /* Make buttons smaller */
+        font-size: 14px;
+    }
+
+    #toggle-text-button {
+        padding: 10px 14px; /* Adjust specific button */
+    }
+
+    .bubble {
+        max-width: 85%; /* Allow bubbles to use more of the screen width */
+        font-size: 14px;
+        bottom: 110px; /* Adjust vertical position for new layout */
+    }
+}
