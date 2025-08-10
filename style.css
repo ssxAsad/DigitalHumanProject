@@ -116,6 +116,8 @@ body, html {
 
 #chat-input::placeholder {
     color: #aaa;
+    font-size: 16px; /* Default placeholder size */
+    transition: font-size 0.3s ease;
 }
 
 .action-button {
@@ -224,6 +226,10 @@ body, html {
         font-size: 16px; /* Keep font readable */
     }
 
+    #chat-input::placeholder {
+        font-size: 15px; /* Adjust placeholder font for mobile */
+    }
+
     .action-button {
         padding: 12px;
         font-size: 15px;
@@ -253,6 +259,10 @@ body, html {
     #chat-input {
         font-size: 14px; /* Smaller font for tiny screens */
         padding: 12px 10px;
+    }
+
+    #chat-input::placeholder {
+        font-size: 14px; /* Match input font on tiny screens */
     }
 
     .action-button {
