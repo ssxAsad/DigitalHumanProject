@@ -690,7 +690,7 @@ animate();
     }
 
 /* =========================================================
-   12. PLAY RESPONSE & EXPRESSIONS (handles ws -> audio + visemes)
+   12. PLAY RESPONSE & EXPRESSIONS (Netlify-secured TTS)
    ========================================================= */
 function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
     return new Promise(async (resolve) => {
@@ -714,7 +714,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             return;
         }
 
-        // --- Voice Mode Logic using Netlify Function ---
         const endPlayback = () => {
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
@@ -747,9 +746,24 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 })
             });
 
-            if (!ttsResponse.ok) throw new Error("TTS request failed");
+            if (!ttsResponse.ok) {
+                const errData = await ttsResponse.json().catch(() => ({}));
+                console.error("TTS request failed:", errData);
+                isTalking = false;
+                endPlayback();
+                return;
+            }
 
             const audioBase64 = await ttsResponse.text();
+
+            // Safety check: ensure this is base64 audio, not JSON
+            if (audioBase64.trim().startsWith("{")) {
+                console.error("TTS returned JSON instead of audio:", audioBase64);
+                isTalking = false;
+                endPlayback();
+                return;
+            }
+
             const audioBuffer = await audioContext.decodeAudioData(
                 Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0)).buffer
             );
@@ -770,6 +784,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         }
     });
 }
+
 
 /* =========================================================
    13. CHAT / API FLOW (Gemini online + local LM Studio)
@@ -947,3 +962,4 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
