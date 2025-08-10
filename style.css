@@ -1,49 +1,45 @@
-/* Basic styles for the page */
-body, html {
+/* Reset & Base Styles */
+html, body {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden; /* Prevents scrollbars */
+    overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    
-    /* NEW: Static image background */
     background-image: url('backgrounds/room.png');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
 }
 
-/* Container for the 3D canvas */
+/* Container for the 3D VRM Canvas */
 #canvas-container {
-    width: 100%;
-    height: 100%;
-    display: block;
     position: absolute;
     top: 0;
     left: 0;
-    z-index: 1; /* Places the canvas behind the UI */
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    z-index: 1;
 }
 
-/* Shared style for both bubbles with updated position */
+/* Chat UI Bubbles */
 .bubble {
-    display: none; /* Hidden by default */
+    display: none;
     position: absolute;
-    bottom: 100px; /* Adjusted position for the new layout */
+    bottom: 100px;
     left: 50%;
-    transform: translateX(-50%); /* Center horizontally */
-    
+    transform: translateX(-50%);
     padding: 12px 20px;
     border-radius: 20px;
-    max-width: 320px;
-    font-size: 16px;
+    max-width: 90%;
+    font-size: clamp(14px, 2vw, 16px);
     font-weight: 500;
     z-index: 10;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.4s ease-in-out, bottom 0.4s ease-in-out;
     text-align: center;
-    
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -51,7 +47,7 @@ body, html {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* Fire-like gradient text style */
+/* Gradient Text */
 .fire-text {
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     -webkit-background-clip: text;
@@ -60,20 +56,19 @@ body, html {
     -webkit-text-fill-color: transparent;
 }
 
-/* Main UI container at the bottom */
+/* Chat Container */
 #chat-container {
     position: absolute;
     bottom: 0;
     left: 0;
     width: 100%;
-    padding: 20px;
+    padding: clamp(10px, 2vw, 20px);
     box-sizing: border-box;
     z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 15px;
     align-items: center;
-    
     background: rgba(0, 0, 0, 0.2);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -81,14 +76,15 @@ body, html {
     -webkit-mask-image: linear-gradient(to top, black 70%, transparent 100%);
 }
 
-/* NEW: Container for the expression buttons */
+/* Expression Buttons */
 #expression-container {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     justify-content: center;
 }
 
-/* Container for the input row */
+/* Input Row */
 #input-container {
     display: flex;
     gap: 10px;
@@ -97,7 +93,7 @@ body, html {
     max-width: 600px;
 }
 
-/* Chat input field style */
+/* Chat Input */
 #chat-input {
     flex-grow: 1;
     padding: 12px 15px;
@@ -118,17 +114,16 @@ body, html {
     border-color: #fca311;
 }
 
-/* General style for all action buttons */
+/* Buttons */
 .action-button {
     padding: 12px 25px;
     border: none;
     border-radius: 20px;
     color: white;
-    font-size: 16px;
+    font-size: clamp(14px, 2vw, 16px);
     font-weight: bold;
     cursor: pointer;
     flex-shrink: 0;
-    
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     background-size: 200% 200%;
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
@@ -146,21 +141,20 @@ body, html {
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
 
-/* Specific styling for the 'T' toggle button */
-#toggle-text-button {
-    padding: 12px 18px;
-}
-
-/* Style for the button when text is toggled OFF */
-#toggle-text-button.toggle-off {
-    background: linear-gradient(45deg, #6c757d, #495057);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    color: #ccc;
-}
-
-/* NEW: Style for the mode toggle button when set to 'Local' */
+/* Toggle Buttons Off */
+#toggle-text-button.toggle-off,
 #mode-toggle-button.toggle-off {
     background: linear-gradient(45deg, #6c757d, #495057);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     color: #ccc;
+}
+
+/* 📱 Responsive Tweaks */
+@media (max-width: 768px) {
+    #chat-container {
+        gap: 10px;
+    }
+    #chat-input {
+        font-size: 14px;
+    }
 }
