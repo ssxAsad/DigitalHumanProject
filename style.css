@@ -1,45 +1,49 @@
-/* Reset & Base Styles */
-html, body {
+/* Basic styles for the page */
+body, html {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;
+    overflow: hidden; /* Prevents scrollbars */
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    
+    /* NEW: Static image background */
     background-image: url('backgrounds/room.png');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
 }
 
-/* Container for the 3D VRM Canvas */
+/* Container for the 3D canvas */
 #canvas-container {
+    width: 100%;
+    height: 100%;
+    display: block;
     position: absolute;
     top: 0;
     left: 0;
-    width: 100vw;
-    height: 100vh;
-    display: block;
-    z-index: 1;
+    z-index: 1; /* Places the canvas behind the UI */
 }
 
-/* Chat UI Bubbles */
+/* Shared style for both bubbles with updated position */
 .bubble {
-    display: none;
+    display: none; /* Hidden by default */
     position: absolute;
-    bottom: 100px;
+    bottom: 100px; /* Adjusted position for the new layout */
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%); /* Center horizontally */
+    
     padding: 12px 20px;
     border-radius: 20px;
-    max-width: 90%;
-    font-size: clamp(14px, 2vw, 16px);
+    max-width: 320px;
+    font-size: 16px;
     font-weight: 500;
     z-index: 10;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.4s ease-in-out, bottom 0.4s ease-in-out;
     text-align: center;
+    
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -47,7 +51,7 @@ html, body {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* Gradient Text */
+/* Fire-like gradient text style */
 .fire-text {
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     -webkit-background-clip: text;
@@ -56,19 +60,20 @@ html, body {
     -webkit-text-fill-color: transparent;
 }
 
-/* Chat Container */
+/* Main UI container at the bottom */
 #chat-container {
     position: absolute;
     bottom: 0;
     left: 0;
     width: 100%;
-    padding: clamp(10px, 2vw, 20px);
+    padding: 20px;
     box-sizing: border-box;
     z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 15px;
     align-items: center;
+    
     background: rgba(0, 0, 0, 0.2);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -76,15 +81,14 @@ html, body {
     -webkit-mask-image: linear-gradient(to top, black 70%, transparent 100%);
 }
 
-/* Expression Buttons */
+/* NEW: Container for the expression buttons */
 #expression-container {
     display: flex;
-    flex-wrap: wrap;
     gap: 10px;
     justify-content: center;
 }
 
-/* Input Row */
+/* Container for the input row */
 #input-container {
     display: flex;
     gap: 10px;
@@ -93,7 +97,7 @@ html, body {
     max-width: 600px;
 }
 
-/* Chat Input */
+/* Chat input field style */
 #chat-input {
     flex-grow: 1;
     padding: 12px 15px;
@@ -114,16 +118,17 @@ html, body {
     border-color: #fca311;
 }
 
-/* Buttons */
+/* General style for all action buttons */
 .action-button {
     padding: 12px 25px;
     border: none;
     border-radius: 20px;
     color: white;
-    font-size: clamp(14px, 2vw, 16px);
+    font-size: 16px;
     font-weight: bold;
     cursor: pointer;
     flex-shrink: 0;
+    
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     background-size: 200% 200%;
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
@@ -141,20 +146,72 @@ html, body {
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
 
-/* Toggle Buttons Off */
-#toggle-text-button.toggle-off,
+/* Specific styling for the 'T' toggle button */
+#toggle-text-button {
+    padding: 12px 18px;
+}
+
+/* Style for the button when text is toggled OFF */
+#toggle-text-button.toggle-off {
+    background: linear-gradient(45deg, #6c757d, #495057);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    color: #ccc;
+}
+
+/* NEW: Style for the mode toggle button when set to 'Local' */
 #mode-toggle-button.toggle-off {
     background: linear-gradient(45deg, #6c757d, #495057);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     color: #ccc;
 }
 
-/* 📱 Responsive Tweaks */
-@media (max-width: 768px) {
-    #chat-container {
-        gap: 10px;
-    }
-    #chat-input {
-        font-size: 14px;
-    }
+/* =======================================
+   LOADING SCREEN STYLES
+   ======================================= */
+
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #111; /* Dark background */
+    z-index: 100; /* Ensure it's on top of everything */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: opacity 0.5s ease-out; /* Smooth fade-out */
+}
+
+#progress-container {
+    width: 80%;
+    max-width: 400px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    padding: 5px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+#progress-bar {
+    width: 0%; /* Starts at 0 */
+    height: 20px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, #f7772f, #fca311);
+    transition: width 0.3s ease; /* Smoothly animates width changes */
+}
+
+#progress-text {
+    color: #fff;
+    text-align: center;
+    margin-top: 15px;
+    font-size: 16px;
+    font-weight: bold;
+    text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+}
+
+/* Utility class to hide the overlay */
+#loading-overlay.hidden {
+    opacity: 0;
+    pointer-events: none; /* Disables interaction when hidden */
 }
