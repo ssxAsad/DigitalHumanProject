@@ -701,7 +701,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
 
         if (isTextOutputOn) {
-            // Text-only mode logic remains the same
             const textDuration = Math.max(4000, responseText.length * 80);
             showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
             isExpressionActive = true;
@@ -739,7 +738,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         }
 
         const endPlayback = () => {
-            audioPlaybackStartTime = 0;
             isTalking = false;
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
@@ -753,25 +751,18 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 activeEmotionName = primaryExpression.name;
                 activeEmotionWeight = primaryExpression.weight ?? 1.0;
 
-                // Reset state for the new response
-                audioPlaybackStartTime = 0;
-                visemeQueue = [];
-                audioQueue = []; // Though not used for playback here, clearing is good practice
-                lastAppliedViseme = { shape: 'sil', time: 0 };
-
                 initAudioContext();
                 const chunks = splitIntoChunks(responseText);
-                let animationStarted = false;
-                let accumulatedAudioDuration = 0;
-                let nextStartTime = 0;
+                const audioBuffers = [];
+                let totalDuration = 0;
 
+                // Step 1: Fetch and decode all audio chunks first.
                 for (const chunkText of chunks) {
                     const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             voiceId,
-                            with_visemes: true, // Request visemes from the serverless function
                             payload: {
                                 text: chunkText,
                                 voice_settings: { stability: 0.5, similarity_boost: 0.75 }
@@ -784,48 +775,37 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                         throw new Error(errText);
                     }
 
-                    const data = await ttsResponse.json();
-                    if (!data.audio_base64 || !data.visemes) {
-                        throw new Error("Invalid response from TTS function. Expected audio_base64 and visemes.");
-                    }
-
-                    // Decode the base64 audio data using the existing helper function
-                    const audioFloat32 = base64ToFloat32Array(data.audio_base64);
-                    const audioBuffer = audioContext.createBuffer(1, audioFloat32.length, 16000); // Assuming 16kHz
-                    audioBuffer.copyToChannel(audioFloat32, 0);
-
-                    // Add visemes to the queue with a time offset
-                    data.visemes.forEach(v => {
-                        visemeQueue.push({
-                            shape: v.value.toLowerCase(), // e.g., 'A', 'E', 'I', 'O', 'U', 'sil'
-                            time: v.time + nextStartTime
-                        });
-                    });
-
-                    const source = audioContext.createBufferSource();
-                    source.buffer = audioBuffer;
-                    source.connect(audioContext.destination);
-
-                    if (!animationStarted) {
-                        // **FIX 1: Start animation just before the first audio chunk plays**
-                        if (isGreeting && wavingAction) {
-                            setAnimation(wavingAction);
-                        } else {
-                            setAnimation(talkingAction);
-                        }
-                        animationStarted = true;
-                        audioPlaybackStartTime = audioContext.currentTime;
-                        source.start(audioPlaybackStartTime);
-                    } else {
-                        source.start(audioPlaybackStartTime + nextStartTime);
-                    }
-
-                    nextStartTime += audioBuffer.duration;
+                    // FIX: Process the response as a raw audio file, not JSON.
+                    const audioData = await ttsResponse.arrayBuffer();
+                    const decodedBuffer = await audioContext.decodeAudioData(audioData);
+                    audioBuffers.push(decodedBuffer);
+                    totalDuration += decodedBuffer.duration;
                 }
 
-                // Wait for the final chunk to finish playing
-                await new Promise(r => setTimeout(r, nextStartTime * 1000));
-                endPlayback();
+                if (audioBuffers.length === 0) {
+                    endPlayback();
+                    return;
+                }
+
+                // Step 2: Start the animation.
+                if (isGreeting && wavingAction) {
+                    setAnimation(wavingAction);
+                } else {
+                    setAnimation(talkingAction);
+                }
+
+                // Step 3: Play all decoded audio buffers sequentially.
+                let startTime = audioContext.currentTime;
+                for (const buffer of audioBuffers) {
+                    const source = audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioContext.destination);
+                    source.start(startTime);
+                    startTime += buffer.duration;
+                }
+
+                // Step 4: Wait for all audio to finish, then end the playback state.
+                setTimeout(endPlayback, totalDuration * 1000);
 
             } catch (err) {
                 console.error("Error playing response:", err);
@@ -834,7 +814,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         })();
     });
 }
-
 /* =========================================================
    13. CHAT / API FLOW (Gemini online + local LM Studio)
    ========================================================= */
@@ -1011,6 +990,7 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
