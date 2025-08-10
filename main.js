@@ -144,13 +144,12 @@ document.addEventListener('DOMContentLoaded', () => {
    ========================================================= */
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 1.4, 1.8);
-
+    // Initial position is now set by the aspect ratio function
+    
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     canvasContainer.appendChild(renderer.domElement);
-    // safe-guard older/newer three versions
     if (typeof THREE.SRGBColorSpace !== 'undefined' && renderer.outputColorSpace !== undefined) {
         renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
@@ -161,17 +160,45 @@ document.addEventListener('DOMContentLoaded', () => {
     directionalLight.position.set(1, 1, 1).normalize();
     scene.add(directionalLight);
 
-    // --- Window Resize Handler ---
-    window.addEventListener('resize', onWindowResize, false);
+    /**
+     * Adjusts the camera and model position based on the screen's aspect ratio.
+     * This ensures the model is framed correctly on all devices.
+     */
+    function adjustModelForAspectRatio() {
+        const aspect = window.innerWidth / window.innerHeight;
 
+        if (aspect < 1) { // Portrait mode (e.g., phones)
+            // Lower the model and pull the camera back for better framing
+            camera.position.set(0, 1.35, 2.2);
+        } else { // Landscape mode (e.g., desktops, tablets)
+            // Use the standard, closer position
+            camera.position.set(0, 1.4, 1.8);
+        }
+    }
+
+    /**
+     * Handles all updates needed when the window is resized.
+     */
     function onWindowResize() {
+        // Fix for mobile keyboard UI break
+        setRealViewportHeight();
+
         // Update camera aspect ratio
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
 
         // Update renderer size
         renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // Adjust model framing for the new aspect ratio
+        adjustModelForAspectRatio();
     }
+
+    // --- Initial Setup Calls ---
+    window.addEventListener('resize', onWindowResize, false);
+    // Call it once on load to set the initial state correctly
+    onWindowResize();
+
    
 /* =========================================================
    9. VRM LOADING, ANIMATIONS & EXPRESSION HELPERS (SAFE)
@@ -1203,11 +1230,25 @@ async function initializeScene() {
 
 // Start the entire application.
 initializeScene();
+/* =========================================================
+   NEW: MOBILE VIEWPORT HELPER
+   ========================================================= */
+/**
+ * Calculates the actual viewport height minus the browser UI and keyboard,
+ * and sets it as a CSS variable (`--vh`). This prevents the layout from
+ * breaking when the mobile keyboard appears.
+ */
+function setRealViewportHeight() {
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
 
+   
 /*====================================================
   END OF SCRIPT
   ====================================================*/
 }); // end DOMContentLoaded
+
 
 
 
