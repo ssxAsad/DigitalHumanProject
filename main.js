@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.getElementById('send-button');
     const toggleTextButton = document.getElementById('toggle-text-button');
     const modeToggleButton = document.getElementById('mode-toggle-button');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
 
 /* =========================================================
    4. API CONFIGURATION
@@ -1104,6 +1107,7 @@ async function initializeScene() {
 initializeScene();
 
 }); // end DOMContentLoaded
+
 
 
 
