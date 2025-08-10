@@ -8,7 +8,10 @@ body, html {
     margin: 0;
     padding: 0;
     width: 100%;
-    height: 100%;
+    /* IMPORTANT: Height is now controlled by a CSS variable set in JS */
+    /* This prevents the layout from breaking when the mobile keyboard appears */
+    height: 100vh; /* Fallback for browsers without JS */
+    height: calc(var(--vh, 1vh) * 100);
     overflow: hidden; /* Prevents scrollbars */
     font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     
@@ -16,6 +19,7 @@ body, html {
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
+    position: relative; /* Needed for child absolute positioning */
 }
 
 /* Container for the 3D canvas */
@@ -33,12 +37,11 @@ body, html {
    BUBBLE STYLES
    ======================================= */
 .bubble {
-    display: none; /* Hidden by default */
+    display: none;
     position: absolute;
-    bottom: 100px; /* Adjusted position for the new layout */
+    bottom: 120px; /* Default position */
     left: 50%;
-    transform: translateX(-50%); /* Center horizontally */
-    
+    transform: translateX(-50%);
     padding: 12px 20px;
     border-radius: 20px;
     max-width: 320px;
@@ -49,7 +52,6 @@ body, html {
     opacity: 0;
     transition: opacity 0.4s ease-in-out, bottom 0.4s ease-in-out;
     text-align: center;
-    
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -80,7 +82,6 @@ body, html {
     flex-direction: column;
     gap: 15px;
     align-items: center;
-    
     background: rgba(0, 0, 0, 0.2);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -112,6 +113,7 @@ body, html {
     font-size: 16px;
     outline: none;
     transition: border-color 0.3s;
+    -webkit-appearance: none; /* Prevents iOS styling */
 }
 
 #chat-input::placeholder {
@@ -128,10 +130,9 @@ body, html {
     border-radius: 20px;
     color: white;
     font-size: 16px;
-    font-weight: 600; /* Bolder font for buttons */
+    font-weight: 600;
     cursor: pointer;
     flex-shrink: 0;
-    
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     background-size: 200% 200%;
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
@@ -170,13 +171,13 @@ body, html {
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(135deg, #1d1d1d, #111); /* Subtle gradient background */
+    background: linear-gradient(135deg, #1d1d1d, #111);
     z-index: 100;
     display: flex;
     justify-content: center;
     align-items: center;
-    flex-direction: column; /* Center items vertically */
-    transition: opacity 0.75s cubic-bezier(0.4, 0, 0.2, 1); /* Smoother fade-out */
+    flex-direction: column;
+    transition: opacity 0.75s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #progress-container {
@@ -190,19 +191,13 @@ body, html {
 }
 
 #progress-bar {
-    width: 100%; /* The container now handles the background */
+    width: 100%;
     height: 10px;
     border-radius: 7px;
     background: linear-gradient(90deg, #f7772f, #fca311);
-    
-    /* This transform property is key to a much smoother animation */
     transform-origin: left;
-    transform: scaleX(0); /* Start at 0 width */
-    
-    /* A more sophisticated transition for a beautiful ease-in-out effect */
+    transform: scaleX(0);
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    
-    /* Add a subtle glow to the bar */
     box-shadow: 0 0 10px rgba(252, 163, 17, 0.5), 0 0 20px rgba(252, 163, 17, 0.3);
 }
 
@@ -210,51 +205,52 @@ body, html {
     color: rgba(255, 255, 255, 0.8);
     margin-top: 20px;
     font-size: 1em;
-    font-weight: 600; /* Use the bolder Poppins weight */
-    letter-spacing: 0.1em; /* Wider spacing for a modern feel */
-    text-transform: uppercase; /* All caps for a cleaner look */
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
     text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
-/* Utility class to hide the overlay */
 #loading-overlay.hidden {
     opacity: 0;
     pointer-events: none;
 }
 
-
 /* =========================================================
-   NEW: MOBILE RESPONSIVE STYLES
+   MOBILE RESPONSIVE FIXES
    ========================================================= */
 
 /* These rules apply only to screens 768px wide or smaller */
 @media (max-width: 768px) {
     #chat-container {
-        padding: 15px; /* Reduce padding on smaller screens */
-        gap: 10px;
+        padding: 10px; /* Tighter padding */
+        gap: 8px;
     }
 
     #input-container {
-        gap: 8px; /* Reduce gap between buttons */
+        gap: 5px; /* Tighter buttons */
+        padding: 0 5px;
     }
 
     #chat-input {
-        padding: 10px 15px;
-        font-size: 14px;
+        padding: 12px 15px; /* Slightly larger tap area */
+        font-size: 16px;
     }
 
     .action-button {
-        padding: 10px 15px; /* Make buttons smaller */
-        font-size: 14px;
+        padding: 12px; /* Make buttons more compact */
+        font-size: 15px;
+        min-width: 44px; /* Ensure minimum tap size */
+        text-align: center;
     }
-
-    #toggle-text-button {
-        padding: 10px 14px; /* Adjust specific button */
+    
+    #send-button {
+        padding: 12px 20px;
     }
 
     .bubble {
-        max-width: 85%; /* Allow bubbles to use more of the screen width */
-        font-size: 14px;
-        bottom: 110px; /* Adjust vertical position for new layout */
+        max-width: 90%;
+        font-size: 15px;
+        bottom: 95px; /* Adjust bubble position */
     }
 }
