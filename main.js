@@ -1054,7 +1054,8 @@ function loadVRM(url) {
                 // Update the loading bar based on the model loading progress
                 if (progress.total > 0) {
                     const pct = Math.round(100.0 * (progress.loaded / progress.total));
-                    progressBar.style.width = pct + '%';
+                    // UPDATED: Use transform for smoother animation
+                    progressBar.style.transform = `scaleX(${pct / 100})`;
                     progressText.textContent = `Loading Model... ${pct}%`;
                 } else {
                     progressText.textContent = `Loading Model...`; // Fallback if total size is unknown
@@ -1081,7 +1082,8 @@ async function initializeScene() {
         
         // 2. Update UI to reflect that animations are now loading.
         progressText.textContent = 'Loading Animations...';
-        progressBar.style.width = '100%'; // Show full bar for this phase
+        // UPDATED: Use transform for smoother animation
+        progressBar.style.transform = 'scaleX(1)';
 
         // 3. Load all necessary animations and wait for them to complete.
         await loadAnimations();
@@ -1095,7 +1097,7 @@ async function initializeScene() {
         // After the fade-out transition, set display to 'none' to remove it from the layout.
         setTimeout(() => {
             loadingOverlay.style.display = 'none';
-        }, 500); // This duration should match the CSS transition time.
+        }, 750); // This duration should match the CSS transition time.
 
     } catch (error) {
         console.error("Initialization failed:", error);
@@ -1106,7 +1108,11 @@ async function initializeScene() {
 // Start the entire application by calling the initialization orchestrator.
 initializeScene();
 
+/*====================================================
+  END OF SCRIPT
+*/
 }); // end DOMContentLoaded
+
 
 
 
