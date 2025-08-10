@@ -6,6 +6,8 @@ export async function handler(event) {
     const voiceId = body.voiceId;
     const apiUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
+    console.log("➡️ Calling ElevenLabs API:", apiUrl);
+
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -15,18 +17,21 @@ export async function handler(event) {
       body: JSON.stringify(body.payload)
     });
 
-    // If ElevenLabs returns an error (non-200 status)
+    // Log status code
+    console.log("🔄 ElevenLabs status:", response.status, response.statusText);
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("ElevenLabs API Error:", errorText);
+      console.error("❌ ElevenLabs API Error Response:", errorText);
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: errorText })
       };
     }
 
-    // Get audio and return as base64
     const arrayBuffer = await response.arrayBuffer();
+    console.log("✅ Received audio, size:", arrayBuffer.byteLength, "bytes");
+
     const base64Audio = Buffer.from(arrayBuffer).toString("base64");
 
     return {
@@ -39,7 +44,7 @@ export async function handler(event) {
     };
 
   } catch (err) {
-    console.error("Function Error:", err);
+    console.error("💥 Function Error:", err);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 }
