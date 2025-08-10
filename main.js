@@ -690,7 +690,7 @@ animate();
     }
 
 /* =========================================================
-   12. PLAY RESPONSE & EXPRESSIONS (handles ws -> audio + visemes)
+   12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback, preserves viseme/emotion flow)
    ========================================================= */
 function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
     return new Promise((resolve) => {
@@ -714,11 +714,36 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             return;
         }
 
-        // --- Voice Mode Logic using Netlify Function ---
+        // Helper: split into small sentences/chunks (keeps punctuation)
+        function splitIntoChunks(text) {
+            // split on sentence boundaries but keep short pieces if sentences are long
+            const rough = text.match(/[^.!?]+[.!?]?/g) || [text];
+            const out = [];
+            rough.forEach(sentence => {
+                const trimmed = sentence.trim();
+                if (!trimmed) return;
+                // if sentence too long, cut roughly into 100-char chunks at whitespace
+                if (trimmed.length <= 140) {
+                    out.push(trimmed);
+                } else {
+                    let s = trimmed;
+                    while (s.length > 0) {
+                        let piece = s.slice(0, 140);
+                        // try to cut at last space
+                        const lastSpace = piece.lastIndexOf(' ');
+                        if (lastSpace > 60) piece = piece.slice(0, lastSpace);
+                        out.push(piece.trim());
+                        s = s.slice(piece.length).trim();
+                    }
+                }
+            });
+            return out;
+        }
+
+        // --- Voice Mode Logic using Netlify Function with chunked requests ---
         const endPlayback = () => {
             audioPlaybackStartTime = 0;
             isTalking = false;
-
             // Reset to relaxed after speaking
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
@@ -729,7 +754,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         (async () => {
             try {
                 isTalking = true;
-
                 if (isGreeting && wavingAction) {
                     setAnimation(wavingAction);
                 } else {
@@ -748,64 +772,90 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
                 initAudioContext();
 
-                // Call our Netlify function to get binary audio back (Netlify will decode base64)
-                const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        voiceId,
-                        payload: {
-                            text: responseText,
-                            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-                        }
-                    })
-                });
+                // Break text into chunks and request TTS for each chunk sequentially,
+                // playing each chunk as it arrives to reduce perceived latency.
+                const chunks = splitIntoChunks(responseText);
 
-                if (!ttsResponse.ok) {
-                    // try to show function error in UI and console
-                    const errText = await ttsResponse.text().catch(() => '');
-                    console.error("TTS request failed:", ttsResponse.status, ttsResponse.statusText, errText);
-                    isTalking = false;
-                    endPlayback();
-                    return;
-                }
+                // sequentially fetch and play chunks
+                for (let i = 0; i < chunks.length; ++i) {
+                    const chunkText = chunks[i];
 
-                // --- SAFELY get binary audio (avoid atob/base64 issues) ---
-                const audioArrayBuffer = await ttsResponse.arrayBuffer();
+                    // call Netlify function to get binary audio
+                    const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            voiceId,
+                            payload: {
+                                text: chunkText,
+                                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                            }
+                        })
+                    });
 
-                // decode into WebAudio buffer
-                let decodedBuffer;
-                try {
-                    decodedBuffer = await audioContext.decodeAudioData(audioArrayBuffer);
-                } catch (decodeErr) {
-                    // Some browsers expect a cloned ArrayBuffer — try a slice fallback
-                    try {
-                        decodedBuffer = await audioContext.decodeAudioData(audioArrayBuffer.slice(0));
-                    } catch (sliceErr) {
-                        console.error("Audio decode failed:", decodeErr, sliceErr);
+                    if (!ttsResponse.ok) {
+                        // log and abort playback gracefully
+                        const errText = await ttsResponse.text().catch(() => '');
+                        console.error("TTS request failed:", ttsResponse.status, ttsResponse.statusText, errText);
                         isTalking = false;
                         endPlayback();
                         return;
                     }
+
+                    // get binary arrayBuffer for this chunk
+                    const chunkBuffer = await ttsResponse.arrayBuffer();
+
+                    // decode audio chunk (web audio)
+                    let decoded;
+                    try {
+                        decoded = await audioContext.decodeAudioData(chunkBuffer);
+                    } catch (decodeErr) {
+                        // slice fallback (some browsers)
+                        try {
+                            decoded = await audioContext.decodeAudioData(chunkBuffer.slice(0));
+                        } catch (sliceErr) {
+                            console.error("Audio decode failed for chunk:", decodeErr, sliceErr);
+                            isTalking = false;
+                            endPlayback();
+                            return;
+                        }
+                    }
+
+                    // create source and play; but wait until previous source finishes or schedule overlap
+                    const source = audioContext.createBufferSource();
+                    source.buffer = decoded;
+                    source.connect(audioContext.destination);
+
+                    // set audioPlaybackStartTime if it's not set (used by viseme timing)
+                    if (audioPlaybackStartTime === 0) audioPlaybackStartTime = audioContext.currentTime;
+
+                    // small strategy: if previous audio is still playing, start right away (allows slight overlap)
+                    // This also keeps your viseme logic working relative to audioPlaybackStartTime
+                    let finishedPromise = new Promise((res) => {
+                        source.onended = () => res();
+                    });
+
+                    source.start();
+                    // for the first chunk, we want to continue fetching next chunk immediately, not wait full playback
+                    // but to avoid huge concurrency, we await a small time or the chunk to end depending on chunk length
+                    // choose to await min(decoded.duration * 0.35, 1.5) seconds so streaming feels continuous
+                    const waitTime = Math.min(decoded.duration * 0.35, 1.5) * 1000;
+                    await new Promise(r => setTimeout(r, waitTime));
+
+                    // continue to next chunk while current chunk may still play — that's intended
+                    // when last chunk is played, we wait for it to finish
+                    if (i === chunks.length - 1) {
+                        // wait for final chunk to end
+                        await finishedPromise;
+                    }
                 }
 
-                // Create source and play
-                const source = audioContext.createBufferSource();
-                source.buffer = decodedBuffer;
-                source.connect(audioContext.destination);
-
-                // mark playback start time for viseme logic (if you later use visemes)
-                if (audioPlaybackStartTime === 0) audioPlaybackStartTime = audioContext.currentTime;
-
-                source.onended = () => {
-                    isTalking = false;
-                    endPlayback();
-                };
-
-                source.start();
+                // done speaking
+                isTalking = false;
+                endPlayback();
 
             } catch (err) {
-                console.error("Error playing response:", err);
+                console.error("Error playing response (chunked):", err);
                 isTalking = false;
                 endPlayback();
             }
@@ -992,6 +1042,7 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
