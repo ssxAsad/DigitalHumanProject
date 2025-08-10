@@ -689,101 +689,42 @@ animate();
         }
     }
 
-/* =========================================================
-   12. PLAY RESPONSE & EXPRESSIONS (Netlify-secured TTS)
-   ========================================================= */
-function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
-    return new Promise(async (resolve) => {
-        const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
+/* Section 12: ElevenLabs TTS Fetch and Play */
+async function fetchAndPlayTTS(voiceId, payload) {
+    try {
+        console.log("🎤 Sending text to ElevenLabs via Netlify function...");
 
-        if (isTextOutputOn) {
-            const textDuration = Math.max(4000, responseText.length * 80);
-            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
+        const res = await fetch("/.netlify/functions/elevenlabs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ voiceId, payload })
+        });
 
-            isExpressionActive = true;
-            activeEmotionName = primaryExpression.name;
-            activeEmotionWeight = primaryExpression.weight ?? 1.0;
-
-            setTimeout(() => {
-                activeEmotionName = 'relaxed';
-                activeEmotionWeight = 1.0;
-                isExpressionActive = false;
-            }, textDuration - 500);
-
-            resolve();
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error(`❌ ElevenLabs TTS request failed: ${res.status} ${res.statusText}`, errorText);
             return;
         }
 
-        const endPlayback = () => {
-            activeEmotionName = 'relaxed';
-            activeEmotionWeight = 1.0;
-            setAnimation(idleAction);
-            resolve();
-        };
+        // Get binary audio data
+        const arrayBuffer = await res.arrayBuffer();
 
-        try {
-            isTalking = true;
-            if (isGreeting && wavingAction) {
-                setAnimation(wavingAction);
-            } else {
-                setAnimation(talkingAction);
-            }
+        // Create a playable Blob URL
+        const audioBlob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+        const audioUrl = URL.createObjectURL(audioBlob);
 
-            activeEmotionName = primaryExpression.name;
-            activeEmotionWeight = primaryExpression.weight ?? 1.0;
+        console.log(`✅ Audio received (${arrayBuffer.byteLength} bytes) — playing now.`);
 
-            initAudioContext();
+        const audio = new Audio(audioUrl);
+        audio.play().catch(err => {
+            console.error("⚠️ Error playing audio:", err);
+        });
 
-            const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    voiceId,
-                    payload: {
-                        text: responseText,
-                        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-                    }
-                })
-            });
-
-            if (!ttsResponse.ok) {
-                const errData = await ttsResponse.json().catch(() => ({}));
-                console.error("TTS request failed:", errData);
-                isTalking = false;
-                endPlayback();
-                return;
-            }
-
-            const audioBase64 = await ttsResponse.text();
-
-            // Safety check: ensure this is base64 audio, not JSON
-            if (audioBase64.trim().startsWith("{")) {
-                console.error("TTS returned JSON instead of audio:", audioBase64);
-                isTalking = false;
-                endPlayback();
-                return;
-            }
-
-            const audioBuffer = await audioContext.decodeAudioData(
-                Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0)).buffer
-            );
-
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.onended = () => {
-                isTalking = false;
-                endPlayback();
-            };
-            source.start();
-
-        } catch (err) {
-            console.error("Error playing response:", err);
-            isTalking = false;
-            endPlayback();
-        }
-    });
+    } catch (err) {
+        console.error("💥 Error in fetchAndPlayTTS:", err);
+    }
 }
+
 
 
 /* =========================================================
@@ -962,4 +903,5 @@ async function handleSendMessage() {
    15. END OF DOM READY
    ========================================================= */
 }); // end DOMContentLoaded
+
 
