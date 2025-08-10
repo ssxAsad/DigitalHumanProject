@@ -1,3 +1,8 @@
+/* =======================================
+   IMPORTS & BASIC STYLES
+   ======================================= */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
 /* Basic styles for the page */
 body, html {
     margin: 0;
@@ -5,9 +10,8 @@ body, html {
     width: 100%;
     height: 100%;
     overflow: hidden; /* Prevents scrollbars */
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     
-    /* NEW: Static image background */
     background-image: url('backgrounds/room.png');
     background-size: cover;
     background-position: center center;
@@ -25,7 +29,9 @@ body, html {
     z-index: 1; /* Places the canvas behind the UI */
 }
 
-/* Shared style for both bubbles with updated position */
+/* =======================================
+   BUBBLE STYLES
+   ======================================= */
 .bubble {
     display: none; /* Hidden by default */
     position: absolute;
@@ -51,7 +57,6 @@ body, html {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* Fire-like gradient text style */
 .fire-text {
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     -webkit-background-clip: text;
@@ -60,7 +65,9 @@ body, html {
     -webkit-text-fill-color: transparent;
 }
 
-/* Main UI container at the bottom */
+/* =======================================
+   CHAT UI STYLES
+   ======================================= */
 #chat-container {
     position: absolute;
     bottom: 0;
@@ -81,14 +88,12 @@ body, html {
     -webkit-mask-image: linear-gradient(to top, black 70%, transparent 100%);
 }
 
-/* NEW: Container for the expression buttons */
 #expression-container {
     display: flex;
     gap: 10px;
     justify-content: center;
 }
 
-/* Container for the input row */
 #input-container {
     display: flex;
     gap: 10px;
@@ -97,7 +102,6 @@ body, html {
     max-width: 600px;
 }
 
-/* Chat input field style */
 #chat-input {
     flex-grow: 1;
     padding: 12px 15px;
@@ -118,14 +122,13 @@ body, html {
     border-color: #fca311;
 }
 
-/* General style for all action buttons */
 .action-button {
     padding: 12px 25px;
     border: none;
     border-radius: 20px;
     color: white;
     font-size: 16px;
-    font-weight: bold;
+    font-weight: 600; /* Bolder font for buttons */
     cursor: pointer;
     flex-shrink: 0;
     
@@ -146,19 +149,11 @@ body, html {
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
 
-/* Specific styling for the 'T' toggle button */
 #toggle-text-button {
     padding: 12px 18px;
 }
 
-/* Style for the button when text is toggled OFF */
-#toggle-text-button.toggle-off {
-    background: linear-gradient(45deg, #6c757d, #495057);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    color: #ccc;
-}
-
-/* NEW: Style for the mode toggle button when set to 'Local' */
+#toggle-text-button.toggle-off,
 #mode-toggle-button.toggle-off {
     background: linear-gradient(45deg, #6c757d, #495057);
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
@@ -166,7 +161,7 @@ body, html {
 }
 
 /* =======================================
-   LOADING SCREEN STYLES
+   MODERN LOADING SCREEN STYLES
    ======================================= */
 
 #loading-overlay {
@@ -175,43 +170,54 @@ body, html {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: #111; /* Dark background */
-    z-index: 100; /* Ensure it's on top of everything */
+    background: linear-gradient(135deg, #1d1d1d, #111); /* Subtle gradient background */
+    z-index: 100;
     display: flex;
     justify-content: center;
     align-items: center;
-    transition: opacity 0.5s ease-out; /* Smooth fade-out */
+    flex-direction: column; /* Center items vertically */
+    transition: opacity 0.75s cubic-bezier(0.4, 0, 0.2, 1); /* Smoother fade-out */
 }
 
 #progress-container {
     width: 80%;
     max-width: 400px;
-    background-color: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.2);
     border-radius: 10px;
-    padding: 5px;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+    box-shadow: 0 0 25px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 #progress-bar {
-    width: 0%; /* Starts at 0 */
-    height: 20px;
-    border-radius: 5px;
+    width: 100%; /* The container now handles the background */
+    height: 10px;
+    border-radius: 7px;
     background: linear-gradient(90deg, #f7772f, #fca311);
-    transition: width 0.3s ease; /* Smoothly animates width changes */
+    
+    /* This transform property is key to a much smoother animation */
+    transform-origin: left;
+    transform: scaleX(0); /* Start at 0 width */
+    
+    /* A more sophisticated transition for a beautiful ease-in-out effect */
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* Add a subtle glow to the bar */
+    box-shadow: 0 0 10px rgba(252, 163, 17, 0.5), 0 0 20px rgba(252, 163, 17, 0.3);
 }
 
 #progress-text {
-    color: #fff;
-    text-align: center;
-    margin-top: 15px;
-    font-size: 16px;
-    font-weight: bold;
-    text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+    color: rgba(255, 255, 255, 0.8);
+    margin-top: 20px;
+    font-size: 1em;
+    font-weight: 600; /* Use the bolder Poppins weight */
+    letter-spacing: 0.1em; /* Wider spacing for a modern feel */
+    text-transform: uppercase; /* All caps for a cleaner look */
+    text-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
 /* Utility class to hide the overlay */
 #loading-overlay.hidden {
     opacity: 0;
-    pointer-events: none; /* Disables interaction when hidden */
+    pointer-events: none;
 }
