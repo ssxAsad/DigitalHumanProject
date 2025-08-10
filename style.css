@@ -128,6 +128,7 @@ body, html {
     flex-shrink: 0;
     background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
     transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
 
 .action-button:hover {
@@ -140,6 +141,14 @@ body, html {
     transform: translateY(0);
     box-shadow: 0 4px 15px rgba(252, 163, 17, 0.4);
 }
+
+/* --- FIX: RESTORED TOGGLE-OFF STYLES --- */
+.action-button.toggle-off {
+    background: linear-gradient(45deg, #6c757d, #495057);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    color: #ccc;
+}
+
 
 /* =======================================
    LOADING SCREEN STYLES
