@@ -111,6 +111,7 @@ body, html {
     outline: none;
     transition: border-color 0.3s;
     -webkit-appearance: none;
+    min-width: 50px; /* Prevent input from becoming too small */
 }
 
 #chat-input::placeholder {
@@ -212,22 +213,20 @@ body, html {
         padding-top: 10px;
         padding-left: 10px;
         padding-right: 10px;
-        /* The bottom padding is handled by the main rule with env() */
         gap: 8px;
     }
 
     #input-container {
-        gap: 5px;
+        gap: 8px; /* Slightly more space for general mobile */
     }
 
     #chat-input {
-        font-size: 16px;
+        font-size: 16px; /* Keep font readable */
     }
 
     .action-button {
         padding: 12px;
         font-size: 15px;
-        min-width: 44px;
     }
     
     #send-button {
@@ -237,7 +236,35 @@ body, html {
     .bubble {
         max-width: 90%;
         font-size: 15px;
-        /* Also adjust bubble position to respect the safe area */
-        bottom: calc(95px + env(safe-area-inset-bottom)); 
+        bottom: calc(85px + env(safe-area-inset-bottom)); 
+    }
+}
+
+/* --- NEW: Styles for very small screens (e.g., iPhone SE) --- */
+@media (max-width: 380px) {
+    #chat-container {
+        gap: 5px; /* Tighter gap */
+    }
+
+    #input-container {
+        gap: 5px; /* Tighter buttons */
+    }
+
+    #chat-input {
+        font-size: 14px; /* Smaller font for tiny screens */
+        padding: 12px 10px;
+    }
+
+    .action-button {
+        padding: 12px 8px; /* Reduce padding to allow shrinking */
+        font-size: 12px; /* Smaller font for smaller buttons */
+    }
+    
+    #send-button {
+        padding: 12px 12px; /* Give send button slightly more space */
+    }
+    
+    .bubble {
+        bottom: calc(75px + env(safe-area-inset-bottom)); 
     }
 }
