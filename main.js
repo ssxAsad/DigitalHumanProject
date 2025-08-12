@@ -1245,9 +1245,12 @@ async function loadAnimations() {
     }
     if (wavingAnimGltf) {
         const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
+        if (wavingClip.duration > 1.0) {
+            wavingClip.duration -= 0.9;
+        }
         wavingAction = mixer.clipAction(wavingClip);
         wavingAction.setLoop(THREE.LoopOnce, 0);
-        wavingAction.clampWhenFinished = false;
+        wavingAction.clampWhenFinished = true;
         wavingDuration = wavingClip.duration || 0;
     } else {
         wavingAction = null; wavingDuration = 0;
@@ -1332,6 +1335,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
