@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let talkingAction = null;
     let textingIntroAction = null;
     let thinkingIntroAction = null;
-    let thinkingLoopAction - null;
+    let thinkingLoopAction = null;
     let textingLoopAction = null;
     let wavingAction = null;
     let lastPlayedAction = null;
@@ -918,4 +918,5 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
