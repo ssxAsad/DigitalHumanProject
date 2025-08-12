@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     onWindowResize();
 
 /* =========================================================
-   9. VRM & ANIMATION HELPERS (SAFE)
+   9. VRM LOADING, ANIMATIONS & EXPRESSION HELPERS (SAFE)
    ========================================================= */
 let currentVrm = null;
 let mixer = null;
@@ -226,6 +226,10 @@ function safeRemoveVrmFromScene(vrm) {
         if (!vrm) return;
         if (vrm.scene && scene && scene.children.includes(vrm.scene)) {
             scene.remove(vrm.scene);
+            console.log('Removed previous VRM scene from scene graph.');
+        } else {
+            // Not present in scene — nothing to remove
+            console.log('Previous VRM not present in scene (no removal necessary).');
         }
     } catch (e) {
         console.warn('safeRemoveVrmFromScene error:', e);
@@ -244,9 +248,84 @@ function ensureVrmVisible(vrm) {
             }
         });
         vrm.scene.updateMatrixWorld(true);
+        console.log('Ensured VRM scene visible and materials flagged for update.');
     } catch (e) {
         console.warn('ensureVrmVisible error:', e);
     }
+}
+
+function loadVRM(url) {
+    loader.load(
+        url,
+        (gltf) => {
+            try {
+                const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm || null;
+                if (!vrm) {
+                    console.error('Loaded GLTF did not contain a VRM object in userData.');
+                    return;
+                }
+
+                // Safely remove previous VRM from scene (do not dispose resources here)
+                safeRemoveVrmFromScene(currentVrm);
+
+                // Replace currentVrm with the newly loaded one
+                currentVrm = vrm;
+
+                // Add new VRM scene (ensure we don't accidentally add a duplicate)
+                try {
+                    if (!scene.children.includes(vrm.scene)) {
+                        scene.add(vrm.scene);
+                        console.log('Added new VRM.scene to scene.');
+                    } else {
+                        console.log('VRM.scene was already present in scene.');
+                    }
+                } catch (e) {
+                    console.warn('Failed to add vrm.scene to scene:', e);
+                }
+
+                // Defensive visibility + orientation fixes
+                try { vrm.scene.rotation.y = Math.PI; } catch(e){}
+                try { vrm.scene.visible = true; } catch(e){}
+                try { if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1); } catch(e){}
+                try { vrm.lookAt.target = camera; } catch(e){}
+
+                // Build list of AI-manageable expression names (filter known viseme/blink shapes)
+                try {
+                    aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
+                        ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
+                            .filter(name => !['aa','ih','ou','ee','oh','blink','blinkLeft','blinkRight'].includes(name))
+                        : [];
+                } catch (e) {
+                    aiManagedExpressions = [];
+                }
+
+                console.log("VRM Model loaded. AI can control:", aiManagedExpressions);
+
+                // Setup expression bind maps gently — if it fails, we'll still proceed.
+                try { setupExpressionBindMaps(vrm); } catch (e) { console.warn("setupExpressionBindMaps failed:", e); }
+
+                // Load animations & setup helpers (these are async and have their own try/catch)
+                loadAnimations();
+                setupBlinking(vrm);
+                setupSideGlances(vrm);
+
+                // Ensure scene is visible a short time after load (fallback for odd timing issues)
+                setTimeout(() => ensureVrmVisible(vrm), 200);
+
+            } catch (err) {
+                console.error('Error in loadVRM callback:', err);
+            }
+        },
+        (progress) => {
+            try {
+                const pct = Math.round(100.0 * (progress.loaded / progress.total));
+                console.log('Loading model.', pct, '%');
+            } catch(e){}
+        },
+        (error) => {
+            console.error('Error loading VRM:', error);
+        }
+    );
 }
 
 // ---- Expression / animation helpers (defensive, lightweight) ----
@@ -312,30 +391,138 @@ function scheduleIdle1() {
     const nextTime = Math.floor(Math.random() * 5000) + 10000;
     setTimeout(() => {
         try {
+            // Check if we are in a state where playing a one-off idle animation is appropriate.
             const canSwitch = lastPlayedAction === idleAction && !isTalking && !isTextOutputOn;
             if (canSwitch && idle1Action) {
+                // The 'finished' listener will now handle returning to the main idle animation.
                 setAnimation(idle1Action);
-                setTimeout(() => {
-                    if (lastPlayedAction === idle1Action) setAnimation(idleAction);
-                }, idle1Duration * 1000);
             }
-        } catch(e){}
+        } catch (e) {
+             console.warn("Error in scheduleIdle1:", e);
+        }
+        // Always schedule the next check to keep the loop going.
         scheduleIdle1();
     }, nextTime);
 }
 
+async function loadAnimations() {
+    if (!currentVrm) return;
+    try {
+        mixer = new THREE.AnimationMixer(currentVrm.scene);
+
+        // --- IMPORTANT: This listener is updated to prevent T-posing ---
+        mixer.addEventListener('finished', (event) => {
+            const finishedAction = event.action;
+
+            // When a non-looping animation finishes, decide what to do next.
+            if (finishedAction === wavingAction) {
+                // If talking, switch to talking animation; otherwise, go back to idle.
+                setAnimation(isTalking ? talkingAction : idleAction);
+            } else if (finishedAction === textingIntroAction) {
+                // After the texting intro, always start the texting loop.
+                setAnimation(textingLoopAction);
+            } else if (finishedAction === idle1Action) {
+                // After the idle variant finishes, always return to the main idle animation.
+                setAnimation(idleAction);
+            }
+        });
+
+        // Idle
+        try {
+            const idleAnimGltf = await loader.loadAsync('./animations/idle.vrma');
+            const idleClip = createVRMAnimationClip(idleAnimGltf.userData.vrmAnimations[0], currentVrm);
+            idleAction = mixer.clipAction(idleClip);
+            idleAction.setLoop(THREE.LoopPingPong, Infinity);
+            idleAction.setEffectiveTimeScale(0.8);
+            idleAction.play();
+            lastPlayedAction = idleAction;
+        } catch(e){ console.warn('idle animation load failed', e); }
+
+        // Idle1
+        try {
+            const idle1AnimGltf = await loader.loadAsync('./animations/idle1.vrma');
+            const idle1Clip = createVRMAnimationClip(idle1AnimGltf.userData.vrmAnimations[0], currentVrm);
+            idle1Action = mixer.clipAction(idle1Clip);
+            idle1Action.setLoop(THREE.LoopOnce, 0);
+            idle1Action.clampWhenFinished = true;
+            idle1Duration = idle1Clip.duration || 0;
+        } catch(e){ console.warn('idle1 load failed', e); }
+
+        // Talking
+        try {
+            const talkingAnimGltf = await loader.loadAsync('./animations/talking.vrma');
+            const talkingClip = createVRMAnimationClip(talkingAnimGltf.userData.vrmAnimations[0], currentVrm);
+            talkingAction = mixer.clipAction(talkingClip);
+            talkingAction.setLoop(THREE.LoopPingPong, Infinity);
+        } catch(e){ console.warn('talking animation load failed', e); }
+
+        // Waving (optional)
+        try {
+            const wavingAnimGltf = await loader.loadAsync('./animations/waving.vrma');
+            const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
+            wavingAction = mixer.clipAction(wavingClip);
+            wavingAction.setLoop(THREE.LoopOnce, 0);
+            wavingAction.clampWhenFinished = true;
+            wavingDuration = wavingClip.duration || 0;
+        } catch(e){ wavingAction = null; wavingDuration = 0; }
+
+        scheduleIdle1();
+
+        // Texting (split intro/loop)
+        try {
+            const textingAnimGltf = await loader.loadAsync('./animations/texting.vrma');
+            let originalClip = createVRMAnimationClip(textingAnimGltf.userData.vrmAnimations[0], currentVrm);
+            originalClip.tracks = originalClip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
+            const fps = 30;
+            const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
+            const clipEndFrame = Math.floor(originalClip.duration * fps);
+            const introClip = AnimationUtils.subclip(originalClip, 'textingIntro', 0, introEndFrame, fps);
+            const loopClip = AnimationUtils.subclip(originalClip, 'textingLoop', introEndFrame, clipEndFrame, fps);
+            textingIntroAction = mixer.clipAction(introClip);
+            textingIntroAction.setLoop(THREE.LoopOnce);
+            textingIntroAction.clampWhenFinished = true;
+            textingIntroAction.setEffectiveTimeScale(0.8);
+            textingLoopAction = mixer.clipAction(loopClip);
+            textingLoopAction.setLoop(THREE.LoopPingPong);
+            textingLoopAction.setEffectiveTimeScale(0.8);
+        } catch(e){ console.warn('texting animation load failed', e); }
+
+    } catch (err) {
+        console.error('loadAnimations error:', err);
+    }
+}
+
 function setAnimation(actionToPlay) {
     if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
+
     const actionToFadeOut = lastPlayedAction;
     const fadeDuration = 0.5;
+
+    // Update the state immediately to prevent race conditions
+    lastPlayedAction = actionToPlay;
+
     try {
-        if (actionToFadeOut) actionToFadeOut.fadeOut(fadeDuration);
-        actionToPlay.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(fadeDuration).play();
+        // Fade out the previous action if it exists
+        if (actionToFadeOut) {
+            actionToFadeOut.fadeOut(fadeDuration);
+        }
+
+        // Prepare and fade in the new action
+        actionToPlay.reset();
+        actionToPlay.setEffectiveWeight(1); // Ensure full weight before fading in
+        actionToPlay.fadeIn(fadeDuration);
+        actionToPlay.play();
+
+        // Apply specific time scales as defined in your original logic
         if (actionToPlay === idleAction) idleAction.setEffectiveTimeScale(0.8);
         if (actionToPlay === textingIntroAction) textingIntroAction.setEffectiveTimeScale(0.8);
         if (actionToPlay === textingLoopAction) textingLoopAction.setEffectiveTimeScale(0.8);
-        lastPlayedAction = actionToPlay;
-    } catch (e) { console.warn('setAnimation failed', e); }
+
+    } catch (e) {
+        console.warn('setAnimation failed', e);
+        // If an error occurs, revert the state to avoid getting stuck
+        lastPlayedAction = actionToFadeOut;
+    }
 }
 
 function isGreetingPrompt(userText) {
@@ -343,7 +530,121 @@ function isGreetingPrompt(userText) {
         const greetingRegex = /\b(hi|hello|hey|greetings|yo)\b/i;
         return greetingRegex.test(userText);
     } catch (e) { return false; }
-} 
+}
+
+// ---------- Expression bind helpers (defensive) ----------
+function setupExpressionBindMaps(vrm) {
+    try {
+        expressionBindMap = {};
+        nonMouthExpressionBindMap = {};
+
+        if (!vrm || !vrm.expressionManager || !Array.isArray(vrm.expressionManager.expressions)) {
+            console.warn('No expressionManager.expressions available to build bind maps.');
+            return;
+        }
+
+        const morphIndexToNameCache = new WeakMap();
+        vrm.scene.traverse((obj) => {
+            try {
+                if (obj.isMesh && obj.morphTargetDictionary) {
+                    const rev = {};
+                    for (const name in obj.morphTargetDictionary) {
+                        rev[obj.morphTargetDictionary[name]] = name;
+                    }
+                    morphIndexToNameCache.set(obj, rev);
+                }
+            } catch (e) {}
+        });
+
+        const mouthCandidates = new Set();
+        const expressions = vrm.expressionManager.expressions || [];
+        expressions.forEach(expr => {
+            const name = expr.expressionName || expr.name;
+            const binds = Array.isArray(expr.binds) ? expr.binds : (expr._binds || []);
+            expressionBindMap[name] = binds || [];
+
+            const nonMouthBinds = (binds || []).filter(bind => {
+                try {
+                    if (!bind || !bind.primitives || bind.primitives.length === 0) return true;
+                    const prim = bind.primitives[0];
+                    const rev = morphIndexToNameCache.get(prim);
+                    if (!rev) return true;
+                    const idx = (typeof bind.index === 'number') ? bind.index : (bind.morphTargetIndex ?? bind.index ?? null);
+                    if (idx === null) return true;
+                    const morphName = (rev[idx] || '').toLowerCase();
+
+                    const isMouth = morphName.includes('mouth') ||
+                                    morphName.includes('lip') ||
+                                    morphName.includes('jaw') ||
+                                    morphName.includes('tong') ||
+                                    /fcl_?mth/i.test(morphName) ||
+                                    /_a$|_i$|_ou$|_aa$|_ee$|_ih$/i.test(morphName) ||
+                                    ['a','i','o','e','u'].includes(morphName);
+
+                    if (isMouth) mouthCandidates.add(morphName);
+                    return !isMouth;
+                } catch (e) {
+                    return true;
+                }
+            });
+
+            nonMouthExpressionBindMap[name] = nonMouthBinds;
+        });
+
+        console.log('Expression bind maps prepared:', Object.keys(expressionBindMap).length, 'expressions.');
+        if (mouthCandidates.size > 0) {
+            console.log('Detected mouth-like morph names (examples):', Array.from(mouthCandidates).slice(0, 15));
+        } else {
+            console.log('No obvious mouth-like morph names detected by heuristics — run dumpMorphsAndExpressions() for details.');
+        }
+    } catch (err) {
+        console.warn('setupExpressionBindMaps errored:', err);
+    }
+}
+
+function applyEmotionNonMouth(vrm, name, weight = 1.0) {
+    try {
+        if (!vrm || !vrm.expressionManager || !name) return;
+        const allBinds = expressionBindMap[name] || [];
+        const keepBinds = nonMouthExpressionBindMap[name] || allBinds;
+
+        allBinds.forEach(b => {
+            try { if (b && typeof b.clearAppliedWeight === 'function') b.clearAppliedWeight(); } catch(e){}
+        });
+
+        keepBinds.forEach(b => {
+            try { if (b && typeof b.applyWeight === 'function') b.applyWeight(weight); } catch(e){}
+        });
+
+        // fallback: set expressionManager value (may include mouth — visemes override immediately)
+        try { if (typeof vrm.expressionManager.setValue === 'function') vrm.expressionManager.setValue(name, weight); } catch(e){}
+    } catch (err) {}
+}
+
+// Debug helper that prints mesh morphs & expressions
+function dumpMorphsAndExpressions() {
+    try {
+        if (!currentVrm) { console.warn('No currentVrm'); return; }
+        console.log('--- DUMP: Mesh morph targets ---');
+        currentVrm.scene.traverse(o => {
+            try {
+                if (o.isMesh && o.morphTargetDictionary) {
+                    console.log('mesh:', o.name || o.uuid, Object.keys(o.morphTargetDictionary));
+                }
+            } catch(e){}
+        });
+        console.log('--- DUMP: Expressions ---');
+        try {
+            const exprs = currentVrm.expressionManager?.expressions || [];
+            exprs.forEach(ex => {
+                console.log('expr:', ex.expressionName || ex.name, 'binds:', Array.isArray(ex.binds) ? ex.binds.length : (ex._binds ? ex._binds.length : 0));
+            });
+        } catch(e){}
+    } catch(e){ console.warn('dumpMorphsAndExpressions error', e); }
+}
+
+// Finally, start loading the model (same path as before)
+loadVRM('./models/model.vrm'); 
 
 
 /* =========================================================
@@ -351,6 +652,8 @@ function isGreetingPrompt(userText) {
    ========================================================= */
 function updateVisemesSafe() {
     if (!currentVrm || !currentVrm.expressionManager) return;
+
+    // If we are not talking, ensure the mouth is closed and reset the state.
     if (!isTalking) {
         if (lastAppliedViseme.shape !== 'sil') {
             const lastMappedShape = VISEME_MAPPING[lastAppliedViseme.shape] || lastAppliedViseme.shape;
@@ -359,21 +662,32 @@ function updateVisemesSafe() {
         }
         return;
     }
+
     if (!audioContext || audioPlaybackStartTime === 0) return;
+
     const elapsedTime = audioContext.currentTime - audioPlaybackStartTime;
+
+    // Find the most recent viseme that should be active based on elapsed audio time.
     let newViseme = lastAppliedViseme;
     while (visemeQueue.length > 0 && elapsedTime >= visemeQueue[0].time) {
         newViseme = visemeQueue.shift();
     }
+
+    // If the active viseme hasn't changed since the last frame, do nothing.
     if (newViseme.shape === lastAppliedViseme.shape) return;
+
+    // Turn off the old viseme shape.
     const oldMappedShape = VISEME_MAPPING[lastAppliedViseme.shape] || lastAppliedViseme.shape;
     if (oldMappedShape !== 'sil') {
         try { currentVrm.expressionManager.setValue(oldMappedShape, 0); } catch(e){}
     }
+
+    // Turn on the new viseme shape.
     const newMappedShape = VISEME_MAPPING[newViseme.shape] || newViseme.shape;
     if (newMappedShape !== 'sil') {
         try { currentVrm.expressionManager.setValue(newMappedShape, 1.0); } catch(e){}
     }
+
     lastAppliedViseme = newViseme;
 }
 
@@ -385,14 +699,29 @@ function animate() {
         try { mixer.update(delta); } catch(e) {}
     }
 
-    if (currentVrm) {
-        // Apply the primary emotion, which will not fight with animation-driven expressions.
-        if (activeEmotionName) {
-            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight); } catch (e) {}
+    if (currentVrm && currentVrm.expressionManager) {
+        // The conflicting expression reset loop has been removed to prevent jitter.
+        // The animation mixer and the emotion system can now operate without fighting each other.
+
+        if (isTalking) {
+            // When talking, prioritize lip-sync. We use 'relaxed' as a neutral
+            // base and ensure other primary AI expressions are turned off.
+            try {
+                currentVrm.expressionManager.setValue('relaxed', 1.0);
+                if(activeEmotionName !== 'relaxed') {
+                   currentVrm.expressionManager.setValue(activeEmotionName, 0);
+                }
+            } catch(e) {}
+
+        } else {
+            // When not talking, apply the current AI-driven emotion as usual.
+            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e) {}
         }
-        // Apply visemes for lip-sync, which will override only the mouth.
+
+        // Apply visemes on top of the base expression. This will correctly override the mouth shape.
         try { updateVisemesSafe(); } catch (e) {}
-        // Let the VRM core update spring bones, look-at, etc.
+
+        // Let the VRM component update its internal state (like LookAt).
         try { currentVrm.update(delta); } catch(e) {}
     }
 
@@ -865,6 +1194,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
