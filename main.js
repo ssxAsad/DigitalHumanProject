@@ -776,7 +776,9 @@ document.addEventListener('DOMContentLoaded', () => {
         mixer.addEventListener('finished', (event) => {
             const finishedAction = event.action;
             if (finishedAction === textingIntroAction) {
-                setAnimation(textingLoopAction);
+               thinkingLoopAction.reset().play();
+               thinkingIntroAction.crossFadeTo(thinkingLoopAction, 0.35, true);
+               lastPlayedAction = thinkingLoopAction; // Keep the state updated
             }
             else if (finishedAction === thinkingIntroAction) {
                setAnimation(thinkingLoopAction);
@@ -916,6 +918,7 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
