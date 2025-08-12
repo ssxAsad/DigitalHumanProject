@@ -1231,6 +1231,8 @@ async function initializeScene() {
         cancelAnimationFrame(animationFrameId); // Stop the loop on error
     }
 }
+// Start the entire application.
+initializeScene();
 /* =========================================================
    17. NEW: MOBILE VIEWPORT HELPER
    ========================================================= */
