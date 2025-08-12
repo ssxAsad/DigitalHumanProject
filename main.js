@@ -408,7 +408,6 @@ async function loadAnimations() {
     try {
         mixer = new THREE.AnimationMixer(currentVrm.scene);
         
-        // FIX: Improved logic for handling the end of one-shot animations.
         mixer.addEventListener('finished', (event) => {
             try {
                 // When texting intro finishes, smoothly transition to the texting loop.
@@ -496,40 +495,36 @@ async function loadAnimations() {
     }
 }
 
+/**
+ * FIX: A robust function to smoothly transition between animations.
+ * This function is designed to prevent the "T-pose jitter" by ensuring
+ * a seamless cross-fade between the outgoing and incoming animation actions.
+ */
 function setAnimation(actionToPlay) {
-    if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
-
-    const actionToFadeOut = lastPlayedAction;
-    // FIX: Reduced fade duration for a snappier, more responsive transition.
-    const fadeDuration = 0.3; 
-
-    try {
-        if (actionToFadeOut) {
-            actionToFadeOut.fadeOut(fadeDuration);
-        }
-        
-        actionToPlay.reset()
-            .setEffectiveTimeScale(1)
-            .setEffectiveWeight(1)
-            .fadeIn(fadeDuration)
-            .play();
-
-        // Restore specific time scales after resetting them
-        if (actionToPlay === idleAction || actionToPlay === textingIntroAction || actionToPlay === textingLoopAction) {
-             actionToPlay.setEffectiveTimeScale(0.8);
-        }
-        
-        lastPlayedAction = actionToPlay;
-
-    } catch (e) { 
-        console.warn('setAnimation failed', e); 
-        // Fallback: If fading fails, just play the new one to prevent getting stuck.
-        if (actionToPlay) {
-            actionToPlay.reset().play();
-            lastPlayedAction = actionToPlay;
-        }
+    if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) {
+        return;
     }
+
+    const previousAction = lastPlayedAction;
+    lastPlayedAction = actionToPlay;
+
+    // If there's a previous action, fade it out smoothly.
+    if (previousAction) {
+        previousAction.fadeOut(0.3);
+    }
+
+    // Prepare the new action:
+    // - reset() clears any previous state (like being paused or finished).
+    // - setEffectiveWeight(1) makes sure it's fully active.
+    // - fadeIn(0.3) makes it smoothly transition in.
+    // - play() starts the animation.
+    actionToPlay
+        .reset()
+        .setEffectiveWeight(1.0)
+        .fadeIn(0.3)
+        .play();
 }
+
 
 function isGreetingPrompt(userText) {
     try {
@@ -649,9 +644,6 @@ function dumpMorphsAndExpressions() {
     } catch(e){ console.warn('dumpMorphsAndExpressions error', e); }
 }
 
-// Finally, start loading the model (same path as before)
-// loadVRM('./models/model.vrm'); // This is called by initializeScene now 
-
 
 /* =========================================================
    10. RENDER / UPDATE LOOP (drives visemes + animations)
@@ -706,34 +698,26 @@ function animate() {
     }
 
     if (currentVrm && currentVrm.expressionManager) {
-        // FIX: Re-architected expression logic to prevent conflicts.
-        
-        // First, reset all AI-managed expressions to 0, except for the current one.
-        // This prevents "emotional leakage" from previous states.
-        aiManagedExpressions.forEach(name => {
-            if (name !== activeEmotionName && name !== 'relaxed') {
+        // FIX: The expression cleanup logic is now more precise to prevent conflicts.
+        // It ONLY resets the main emotional expressions, leaving procedural
+        // animations like blinking and side-glances untouched.
+        ALLOWED_EXPRESSIONS_FOR_AI.forEach(name => {
+            if (name !== activeEmotionName) {
+                // Only reset the expression if it's not the currently active one.
+                // This stops the render loop from fighting with setupSideGlances().
                 try { currentVrm.expressionManager.setValue(name, 0); } catch(e){}
             }
         });
 
         if (isTalking) {
-            // When talking, we must separate the main emotion (e.g., happy eyes)
-            // from the mouth movement (lip-sync).
-
-            // 1. Apply the primary emotion (e.g., 'happy') to NON-MOUTH parts ONLY.
+            // When talking, apply the primary emotion (e.g., 'happy') to NON-MOUTH parts.
             applyEmotionNonMouth(currentVrm, activeEmotionName, activeEmotionWeight);
-
-            // 2. The viseme updater now has exclusive control over the mouth.
-            // This prevents the 'happy' expression from fighting with the 'aa' viseme.
+            // The viseme updater then has exclusive control over the mouth for lip-sync.
             updateVisemesSafe();
-
         } else {
-            // When not talking, there's no lip-sync conflict.
-            
-            // 1. Ensure any lingering visemes from the last spoken words are cleared.
+            // When not talking, clear any lingering visemes...
             updateVisemesSafe(); 
-            
-            // 2. Apply the full emotional expression (including its natural mouth shape).
+            // ...and apply the full emotional expression.
             try {
                 currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight);
             } catch(e) {}
@@ -1247,6 +1231,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
