@@ -187,6 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let idle1Action = null;
     let talkingAction = null;
     let textingIntroAction = null;
+    let thinkingIntroAction = null;
+    let thinkingLoopAction - null;
     let textingLoopAction = null;
     let wavingAction = null;
     let lastPlayedAction = null;
@@ -604,6 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         hideBubble(textBubble);
         showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
+        setAnimation(thinkingIntroAction);
 
         const isGreeting = isGreetingPrompt(prompt);
 
@@ -774,7 +777,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const finishedAction = event.action;
             if (finishedAction === textingIntroAction) {
                 setAnimation(textingLoopAction);
-            } 
+            }
+            else if (finishedAction === thinkingIntroAction) {
+               setAnimation(thinkingLoopAction);
+            }
             else if (finishedAction === wavingAction) {
                 if (isTalking) {
                     setAnimation(talkingAction);
@@ -786,7 +792,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const animationFiles = [
             './animations/idle.vrma', './animations/idle1.vrma', './animations/talking.vrma',
-            './animations/waving.vrma', './animations/texting.vrma'
+            './animations/waving.vrma', './animations/texting.vrma', './animations/thinking.vrma'
         ];
         const progressPerAnimation = progressWeights.animations / animationFiles.length;
 
@@ -809,6 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadFile(animationFiles[2], 'Talking', 2),
             loadFile(animationFiles[3], 'Waving', 3),
             loadFile(animationFiles[4], 'Texting', 4)
+            loadFile(animationFiles[5], 'Thinking', 5)
         ]);
 
         if (idleAnimGltf) {
@@ -827,6 +834,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const talkingClip = createVRMAnimationClip(talkingAnimGltf.userData.vrmAnimations[0], currentVrm);
             talkingAction = mixer.clipAction(talkingClip);
             talkingAction.setLoop(THREE.LoopPingPong, Infinity);
+        }
+        if (thinkingAnimGltf) {
+           let originalClip = createVRMAnimationClip(thinkingAnimGltf.userData.vrmAnimations[0], currentVrm);
+           const fps = 60;
+           // Split the clip: 0-25% for intro, 25-100% for loop
+           const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
+           const clipEndFrame = Math.floor(originalClip.duration * fps);
+           const introClip = AnimationUtils.subclip(originalClip, 'thinkingIntro', 0, introEndFrame, fps);
+           const loopClip = AnimationUtils.subclip(originalClip, 'thinkingLoop', introEndFrame, clipEndFrame, fps);
+           // Setup the intro action to play once
+           thinkingIntroAction = mixer.clipAction(introClip);
+           thinkingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
+           // Setup the loop action to play in a ping-pong style
+           thinkingLoopAction = mixer.clipAction(loopClip);
+           thinkingLoopAction.setLoop(THREE.LoopPingPong);
+        }
+           
         }
         if (wavingAnimGltf) {
             const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
@@ -894,3 +918,4 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
