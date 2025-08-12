@@ -391,16 +391,14 @@ function scheduleIdle1() {
     const nextTime = Math.floor(Math.random() * 5000) + 10000;
     setTimeout(() => {
         try {
-            // Check if we are in a state where playing a one-off idle animation is appropriate.
             const canSwitch = lastPlayedAction === idleAction && !isTalking && !isTextOutputOn;
             if (canSwitch && idle1Action) {
-                // The 'finished' listener will now handle returning to the main idle animation.
                 setAnimation(idle1Action);
+                setTimeout(() => {
+                    if (lastPlayedAction === idle1Action) setAnimation(idleAction);
+                }, idle1Duration * 1000);
             }
-        } catch (e) {
-             console.warn("Error in scheduleIdle1:", e);
-        }
-        // Always schedule the next check to keep the loop going.
+        } catch(e){}
         scheduleIdle1();
     }, nextTime);
 }
@@ -409,21 +407,27 @@ async function loadAnimations() {
     if (!currentVrm) return;
     try {
         mixer = new THREE.AnimationMixer(currentVrm.scene);
-
-        // This listener centralizes animation transitions to prevent T-posing and race conditions.
+        
+        // FIX: Improved logic for handling the end of one-shot animations.
         mixer.addEventListener('finished', (event) => {
-            const finishedAction = event.action;
-
-            // When a non-looping animation finishes, decide what to do next.
-            if (finishedAction === wavingAction) {
-                // If talking, switch to talking animation; otherwise, go back to idle.
-                setAnimation(isTalking ? talkingAction : idleAction);
-            } else if (finishedAction === textingIntroAction) {
-                // After the texting intro, always start the texting loop.
-                setAnimation(textingLoopAction);
-            } else if (finishedAction === idle1Action) {
-                // After the idle variant finishes, always return to the main idle animation.
-                setAnimation(idleAction);
+            try {
+                // When texting intro finishes, smoothly transition to the texting loop.
+                if (event.action === textingIntroAction) {
+                    setAnimation(textingLoopAction);
+                }
+                // When waving animation finishes, decide the next logical state.
+                else if (event.action === wavingAction) {
+                    // If the character should be talking now, switch to talking animation.
+                    if (isTalking) {
+                        setAnimation(talkingAction);
+                    } 
+                    // Otherwise, return to the default idle state.
+                    else {
+                        setAnimation(idleAction);
+                    }
+                }
+            } catch(e){
+                console.warn("Mixer 'finished' event callback error:", e);
             }
         });
 
@@ -496,32 +500,34 @@ function setAnimation(actionToPlay) {
     if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
 
     const actionToFadeOut = lastPlayedAction;
-    const fadeDuration = 0.5;
-
-    // Update the state immediately to prevent race conditions
-    lastPlayedAction = actionToPlay;
+    // FIX: Reduced fade duration for a snappier, more responsive transition.
+    const fadeDuration = 0.3; 
 
     try {
-        // Fade out the previous action if it exists
         if (actionToFadeOut) {
             actionToFadeOut.fadeOut(fadeDuration);
         }
+        
+        actionToPlay.reset()
+            .setEffectiveTimeScale(1)
+            .setEffectiveWeight(1)
+            .fadeIn(fadeDuration)
+            .play();
 
-        // Prepare and fade in the new action
-        actionToPlay.reset();
-        actionToPlay.setEffectiveWeight(1); // Ensure full weight before fading in
-        actionToPlay.fadeIn(fadeDuration);
-        actionToPlay.play();
+        // Restore specific time scales after resetting them
+        if (actionToPlay === idleAction || actionToPlay === textingIntroAction || actionToPlay === textingLoopAction) {
+             actionToPlay.setEffectiveTimeScale(0.8);
+        }
+        
+        lastPlayedAction = actionToPlay;
 
-        // Apply specific time scales as defined in your original logic
-        if (actionToPlay === idleAction) idleAction.setEffectiveTimeScale(0.8);
-        if (actionToPlay === textingIntroAction) textingIntroAction.setEffectiveTimeScale(0.8);
-        if (actionToPlay === textingLoopAction) textingLoopAction.setEffectiveTimeScale(0.8);
-
-    } catch (e) {
-        console.warn('setAnimation failed', e);
-        // If an error occurs, revert the state to avoid getting stuck
-        lastPlayedAction = actionToFadeOut;
+    } catch (e) { 
+        console.warn('setAnimation failed', e); 
+        // Fallback: If fading fails, just play the new one to prevent getting stuck.
+        if (actionToPlay) {
+            actionToPlay.reset().play();
+            lastPlayedAction = actionToPlay;
+        }
     }
 }
 
@@ -644,7 +650,7 @@ function dumpMorphsAndExpressions() {
 }
 
 // Finally, start loading the model (same path as before)
-loadVRM('./models/model.vrm'); 
+// loadVRM('./models/model.vrm'); // This is called by initializeScene now 
 
 
 /* =========================================================
@@ -694,41 +700,52 @@ function updateVisemesSafe() {
 function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
-
+    
     if (mixer) {
         try { mixer.update(delta); } catch(e) {}
     }
 
     if (currentVrm && currentVrm.expressionManager) {
-        // The conflicting expression reset loop has been removed to prevent jitter.
-        // The animation mixer and the emotion system can now operate without fighting each other.
+        // FIX: Re-architected expression logic to prevent conflicts.
+        
+        // First, reset all AI-managed expressions to 0, except for the current one.
+        // This prevents "emotional leakage" from previous states.
+        aiManagedExpressions.forEach(name => {
+            if (name !== activeEmotionName && name !== 'relaxed') {
+                try { currentVrm.expressionManager.setValue(name, 0); } catch(e){}
+            }
+        });
 
         if (isTalking) {
-            // When talking, prioritize lip-sync. We use 'relaxed' as a neutral
-            // base and ensure other primary AI expressions are turned off.
-            try {
-                currentVrm.expressionManager.setValue('relaxed', 1.0);
-                if(activeEmotionName !== 'relaxed') {
-                   currentVrm.expressionManager.setValue(activeEmotionName, 0);
-                }
-            } catch(e) {}
+            // When talking, we must separate the main emotion (e.g., happy eyes)
+            // from the mouth movement (lip-sync).
+
+            // 1. Apply the primary emotion (e.g., 'happy') to NON-MOUTH parts ONLY.
+            applyEmotionNonMouth(currentVrm, activeEmotionName, activeEmotionWeight);
+
+            // 2. The viseme updater now has exclusive control over the mouth.
+            // This prevents the 'happy' expression from fighting with the 'aa' viseme.
+            updateVisemesSafe();
 
         } else {
-            // When not talking, apply the current AI-driven emotion as usual.
-            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e) {}
+            // When not talking, there's no lip-sync conflict.
+            
+            // 1. Ensure any lingering visemes from the last spoken words are cleared.
+            updateVisemesSafe(); 
+            
+            // 2. Apply the full emotional expression (including its natural mouth shape).
+            try {
+                currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight);
+            } catch(e) {}
         }
-
-        // Apply visemes on top of the base expression. This will correctly override the mouth shape.
-        try { updateVisemesSafe(); } catch (e) {}
-
-        // Let the VRM component update its internal state (like LookAt).
+        
+        // Finally, run the VRM's internal update for look-at, spring bones, etc.
         try { currentVrm.update(delta); } catch(e) {}
     }
 
     try { renderer.render(scene, camera); } catch(e) {}
 }
 animate();
-
 /* =========================================================
    11. BUBBLE / UI HELPERS
    ========================================================= */
@@ -802,11 +819,10 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             isTalking = false;
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
-
-            // CRITICAL FIX: Only transition to idle if the character is currently in a
-            // talking-related animation. This prevents overriding other states (like texting)
-            // that might have been triggered by the user during playback.
-            if (lastPlayedAction === talkingAction || lastPlayedAction === wavingAction) {
+            // The 'finished' listener on the mixer will handle transitioning
+            // from talking to idle, so we only need to call setAnimation if
+            // the current state is still 'talking'.
+            if(lastPlayedAction === talkingAction) {
                 setAnimation(idleAction);
             }
             resolve();
@@ -821,7 +837,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 initAudioContext();
                 const chunks = splitIntoChunks(responseText);
                 const audioBuffers = [];
-                let totalDuration = 0;
 
                 // Step 1: Fetch and decode all audio chunks first.
                 for (const chunkText of chunks) {
@@ -830,23 +845,15 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             voiceId,
-                            payload: {
-                                text: chunkText,
-                                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-                            }
+                            payload: { text: chunkText }
                         })
                     });
 
-                    if (!ttsResponse.ok) {
-                        const errText = await ttsResponse.text().catch(() => 'TTS request failed');
-                        throw new Error(errText);
-                    }
-
-                    // FIX: Process the response as a raw audio file, not JSON.
+                    if (!ttsResponse.ok) throw new Error(await ttsResponse.text().catch(()=>'TTS Error'));
+                    
                     const audioData = await ttsResponse.arrayBuffer();
                     const decodedBuffer = await audioContext.decodeAudioData(audioData);
                     audioBuffers.push(decodedBuffer);
-                    totalDuration += decodedBuffer.duration;
                 }
 
                 if (audioBuffers.length === 0) {
@@ -854,29 +861,43 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     return;
                 }
 
-                // Step 2: Start the animation. The 'finished' listener will handle transitions.
+                // Step 2: Start the appropriate animation.
                 if (isGreeting && wavingAction) {
                     setAnimation(wavingAction);
                 } else {
                     setAnimation(talkingAction);
                 }
 
-                // Step 3: Play all decoded audio buffers sequentially.
-                let startTime = audioContext.currentTime;
-                for (const buffer of audioBuffers) {
+                // FIX: Play audio buffers sequentially using 'onended' for perfect sync.
+                let currentBufferIndex = 0;
+
+                function playNextBuffer() {
+                    // If we've played all buffers, end the playback sequence.
+                    if (currentBufferIndex >= audioBuffers.length) {
+                        endPlayback();
+                        return;
+                    }
+
+                    const buffer = audioBuffers[currentBufferIndex];
                     const source = audioContext.createBufferSource();
                     source.buffer = buffer;
                     source.connect(audioContext.destination);
-                    source.start(startTime);
-                    startTime += buffer.duration;
+                    
+                    // When this buffer finishes playing, call this function again
+                    // to play the next one in the queue.
+                    source.onended = playNextBuffer;
+                    
+                    source.start();
+                    
+                    currentBufferIndex++;
                 }
 
-                // Step 4: Wait for all audio to finish, then end the playback state.
-                setTimeout(endPlayback, totalDuration * 1000);
+                // Start playing the first buffer.
+                playNextBuffer();
 
             } catch (err) {
                 console.error("Error playing response:", err);
-                endPlayback();
+                endPlayback(); // Ensure state is reset even if an error occurs.
             }
         })();
     });
@@ -1226,6 +1247,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
