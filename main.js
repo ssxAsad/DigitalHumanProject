@@ -808,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         const [
-            idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, textingAnimGltf
+            idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, textingAnimGltf, thinkingAnimGltf
         ] = await Promise.all([
             loadFile(animationFiles[0], 'Idle', 0),
             loadFile(animationFiles[1], 'Idle Variant', 1),
@@ -849,8 +849,6 @@ document.addEventListener('DOMContentLoaded', () => {
            // Setup the loop action to play in a ping-pong style
            thinkingLoopAction = mixer.clipAction(loopClip);
            thinkingLoopAction.setLoop(THREE.LoopPingPong);
-        }
-           
         }
         if (wavingAnimGltf) {
             const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
@@ -918,6 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
