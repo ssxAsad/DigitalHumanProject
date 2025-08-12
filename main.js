@@ -1015,6 +1015,7 @@ async function handleSendMessage() {
             showBubble(textBubble, `<span class="fire-text">Switched to ${apiMode} mode. History cleared.</span>`, 3000);
         }
     });
+
 /* =========================================================
    16. LOADING SCREEN ORCHESTRATOR
    ========================================================= */
@@ -1090,14 +1091,10 @@ function loadVRM(url) {
                     vrm.scene.visible = true;
                     if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1);
                     vrm.lookAt.target = camera;
-
-                    // FIX: Added 'lookLeft' and 'lookRight' to the filter.
-                    // This prevents the main render loop from overriding the side-glance expressions.
                     aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
                         ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
-                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight', 'lookLeft', 'lookRight'].includes(name))
+                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'].includes(name))
                         : [];
-
                     setupExpressionBindMaps(vrm);
                     setupBlinking(vrm);
                     setupSideGlances(vrm);
@@ -1199,7 +1196,7 @@ async function loadAnimations() {
         textingLoopAction = mixer.clipAction(loopClip);
         textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
     }
-
+    
     scheduleIdle1();
 }
 
@@ -1213,7 +1210,7 @@ async function initializeScene() {
     try {
         await loadVRM('./models/model.vrm');
         await loadAnimations();
-
+        
         // Final update to ensure the bar reaches 100%
         updateProgress(1, 'Finished!');
 
@@ -1231,11 +1228,14 @@ async function initializeScene() {
         cancelAnimationFrame(animationFrameId); // Stop the loop on error
     }
 }
+
 // Start the entire application.
 initializeScene();
+
 /* =========================================================
-   17. NEW: MOBILE VIEWPORT HELPER
+   17. MOBILE VIEWPORT HELPER
    ========================================================= */
+
 /**
  * Calculates the actual viewport height minus the browser UI and keyboard,
  * and sets it as a CSS variable (`--vh`). This prevents the layout from
@@ -1246,11 +1246,12 @@ function setRealViewportHeight() {
     document.documentElement.style.setProperty('--vh', `${vh}px`);
 }
 
-   
-/*====================================================
-  END OF SCRIPT
-  ====================================================*/
+/* =========================================================
+   18. SCRIPT END
+   ========================================================= */
+
 }); // end DOMContentLoaded
+
 
 
 
