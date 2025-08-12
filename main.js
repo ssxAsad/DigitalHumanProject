@@ -21,7 +21,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chat-input');
     const sendButton = document.getElementById('send-button');
     const toggleTextButton = document.getElementById('toggle-text-button');
-    const modeToggleButton = document.getElementById('mode-toggle-button');
     const loadingOverlay = document.getElementById('loading-overlay');
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
@@ -44,7 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let aiManagedExpressions = [];
     let activeTweens = {};
     const ALLOWED_EXPRESSIONS_FOR_AI = ['happy', 'angry', 'sad', 'relaxed', 'Surprise', 'Proud', 'Scornful', 'Worry', 'Shy'];
-    let apiMode = 'online'; // 'online' or 'local'
     let isExpressionActive = false; // prevent blinking during expression
     let activeEmotionName = 'relaxed'; // New state to track the current primary emotion.
     let activeEmotionWeight = 1.0; // store the primary expression weight
@@ -893,147 +891,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         })();
     });
 }
-/* =========================================================
-   13. CHAT / API FLOW (Gemini online + local LM Studio)
-   ========================================================= */
-async function handleSendMessage() {
-    const prompt = chatInput.value.trim();
-    if (!prompt || !currentVrm || isAwaitingResponse) return;
 
-    chatInput.value = '';
-
-    isAwaitingResponse = true;
-    chatInput.disabled = true;
-    sendButton.disabled = true;
-    modeToggleButton.disabled = true;
-
-    initAudioContext();
-
-    hideBubble(textBubble);
-    showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
-
-    const isGreeting = isGreetingPrompt(prompt);
-
-    try {
-        if (apiMode === 'online') {
-            const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', ');
-            const systemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive.
-            Respond in a natural, human-like way. NEVER mention you are an AI.
-            IMPORTANT: Your entire response MUST be a single, valid JSON object. Do not include any text before or after the JSON.
-            The JSON object must have this exact structure:
-            {
-              "responseText": "The text you want to say out loud.",
-              "expressions": [ { "name": "expression_name", "weight": 0.8 } ]
-            }
-            - "responseText": The clean, natural language response.
-            - "expressions": An array of facial expressions. Only the FIRST expression will be used and it will last for the entire duration of the response.
-              - "name": Choose the MOST appropriate emotion from this list: [${expressionList}].
-              - "weight": How strong the expression is (from 0.1 to 1.0).`;
-
-            const requestBody = {
-                contents: [
-                    { role: 'user', parts: [{ text: systemPrompt }] },
-                    { role: 'model', parts: [{ text: "Understood." }] },
-                    ...conversationHistory,
-                    { role: "user", parts: [{ text: prompt }] }
-                ],
-                generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
-            };
-
-            const response = await fetch("/.netlify/functions/gemini", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestBody)
-            });
-
-            if (!response.ok) { throw new Error(`Gemini API request failed with status ${response.status}`); }
-
-            const data = await response.json();
-
-            if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                throw new Error("Invalid response structure from Gemini API.");
-            }
-            const { responseText, expressions } = JSON.parse(data.candidates[0].content.parts[0].text);
-
-            hideBubble(thinkingBubble);
-            if (!responseText) throw new Error("Empty response text from API.");
-
-            conversationHistory.push(
-                { role: "user", parts: [{ text: prompt }] },
-                { role: "model", parts: [{ text: JSON.stringify({ responseText, expressions }) }] }
-            );
-            if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
-                conversationHistory.splice(0, 2);
-            }
-
-            await playResponseAndExpressions(responseText, expressions || [], isGreeting);
-
-        } else {
-            // Local LM Studio
-            const localApiUrl = 'http://localhost:1234/v1/chat/completions';
-            const localSystemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive. Respond in a natural, human-like way. NEVER mention you are an AI.`;
-
-            const messages = conversationHistory.map(turn => {
-                const role = turn.role === 'model' ? 'assistant' : 'user';
-                const content = (turn.role === 'user')
-                    ? turn.parts[0].text
-                    : JSON.parse(turn.parts[0].text).responseText;
-                return { role, content };
-            });
-
-            const requestBody = {
-                model: "local-model",
-                messages: [
-                    { role: "system", content: localSystemPrompt },
-                    ...messages,
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.7,
-                stream: false
-            };
-
-            const response = await fetch(localApiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Local API error: ${response.status}. Make sure LM Studio is running and the server is on.`);
-            }
-
-            const data = await response.json();
-            const responseText = data.choices[0].message.content;
-            hideBubble(thinkingBubble);
-
-            const cleanedText = responseText.replace(/(\*.*?\*|")/g, '').trim();
-            if (!cleanedText) {
-                throw new Error("Empty response from local API.");
-            }
-
-            const expressions = [{ name: 'happy', weight: 0.7 }];
-
-            conversationHistory.push(
-                { role: "user", parts: [{ text: prompt }] },
-                { role: "model", parts: [{ text: JSON.stringify({ responseText: cleanedText, expressions }) }] }
-            );
-            if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
-                conversationHistory.splice(0, 2);
-            }
-
-            await playResponseAndExpressions(cleanedText, expressions, isGreeting);
-        }
-    } catch (error) {
-        console.error("--- Error in Chat Flow ---", error);
-        hideBubble(thinkingBubble);
-        showBubble(textBubble, `<span class="fire-text">${error.message}</span>`, 6000);
-    } finally {
-        isAwaitingResponse = false;
-        chatInput.disabled = false;
-        sendButton.disabled = false;
-        modeToggleButton.disabled = false;
-    }
-}
 
 
 /* =========================================================
@@ -1054,18 +912,8 @@ async function handleSendMessage() {
     });
     toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
 
-    modeToggleButton.addEventListener('click', () => {
-        apiMode = apiMode === 'online' ? 'local' : 'online';
-        modeToggleButton.textContent = apiMode === 'online' ? 'Online' : 'Local';
-        modeToggleButton.classList.toggle('toggle-off', apiMode === 'local');
-        if (conversationHistory.length > 0) {
-            conversationHistory = [];
-            showBubble(textBubble, `<span class="fire-text">Switched to ${apiMode} mode. History cleared.</span>`, 3000);
-        }
-    });
-
 /* =========================================================
-   16. LOADING SCREEN ORCHESTRATOR
+   15. LOADING SCREEN ORCHESTRATOR
    ========================================================= */
 
 // This section manages the initial loading sequence. It uses a weighted
@@ -1317,7 +1165,7 @@ async function initializeScene() {
 initializeScene();
 
 /* =========================================================
-   17. MOBILE VIEWPORT HELPER
+   16. MOBILE VIEWPORT HELPER
    ========================================================= */
 
 /**
@@ -1331,10 +1179,11 @@ function setRealViewportHeight() {
 }
 
 /* =========================================================
-   18. SCRIPT END
+   SCRIPT END
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
