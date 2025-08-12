@@ -501,28 +501,35 @@ async function loadAnimations() {
  * a seamless cross-fade between the outgoing and incoming animation actions.
  */
 function setAnimation(actionToPlay) {
-    if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) {
-        return;
-    }
+    if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
 
-    const previousAction = lastPlayedAction;
+    const actionToFadeOut = lastPlayedAction;
+    const fadeDuration = 0.35; // A faster fade feels more responsive and hides potential transition artifacts.
+
+    // --- Robust Transition Logic using crossFadeTo ---
+    // This is the core fix to prevent T-posing during transitions.
+    // It ensures that the new animation starts playing and fades in while the old one is smoothly faded out.
+    if (actionToFadeOut) {
+        // Prepare the new action to be played.
+        actionToPlay.reset().play();
+        // Crossfade from the old action to the new one.
+        actionToFadeOut.crossFadeTo(actionToPlay, fadeDuration, true);
+    } else {
+        // If this is the very first animation, just fade it in.
+        actionToPlay.reset().fadeIn(fadeDuration).play();
+    }
+    
+    // --- Set Animation-Specific Properties ---
+    // This ensures our looping animations have their intended, slightly slower speed.
+    if (actionToPlay === idleAction) idleAction.setEffectiveTimeScale(0.8);
+    else if (actionToPlay === textingIntroAction) textingIntroAction.setEffectiveTimeScale(0.8);
+    else if (actionToPlay === textingLoopAction) textingLoopAction.setEffectiveTimeScale(0.8);
+    else { // For all other actions (e.g., talking, waving), use normal speed.
+        actionToPlay.setEffectiveTimeScale(1.0);
+    }
+    
+    // Update our state to track the currently active animation.
     lastPlayedAction = actionToPlay;
-
-    // If there's a previous action, fade it out smoothly.
-    if (previousAction) {
-        previousAction.fadeOut(0.3);
-    }
-
-    // Prepare the new action:
-    // - reset() clears any previous state (like being paused or finished).
-    // - setEffectiveWeight(1) makes sure it's fully active.
-    // - fadeIn(0.3) makes it smoothly transition in.
-    // - play() starts the animation.
-    actionToPlay
-        .reset()
-        .setEffectiveWeight(1.0)
-        .fadeIn(0.3)
-        .play();
 }
 
 
@@ -1060,69 +1067,143 @@ async function handleSendMessage() {
 /* =========================================================
    16. LOADING SCREEN ORCHESTRATOR
    ========================================================= */
-const progressWeights = { model: 0.7, animations: 0.3 };
-let targetProgress = 0;
-let displayedProgress = 0;
-let animationFrameId;
 
+// This section manages the initial loading sequence. It uses a weighted
+// progress system and a requestAnimationFrame loop for a fast, smooth,
+// and real-time visual progress bar.
+
+// --- Configuration for Weighted Progress ---
+const progressWeights = {
+    model: 0.7,      // The VRM model takes up 70% of the progress bar
+    animations: 0.3  // All animations combined take up 30%
+};
+
+// --- State for Smooth Animation Loop ---
+let targetProgress = 0;      // The actual loading progress (0 to 1)
+let displayedProgress = 0;   // The progress currently shown on screen (0 to 1)
+let animationFrameId;        // To control the animation loop
+
+/**
+ * Updates the target progress and text. The animation loop will then
+ * smoothly move the visual bar to this new target.
+ * @param {number} newProgress - The new target progress value (0 to 1).
+ * @param {string} newText - The new text to display.
+ */
 function updateProgress(newProgress, newText) {
-    targetProgress = Math.min(1, Math.max(targetProgress, newProgress));
+    targetProgress = Math.max(targetProgress, newProgress);
     progressText.textContent = newText;
 }
 
+/**
+ * The animation loop that runs every frame to smoothly update the progress bar.
+ */
 function animateProgressBar() {
+    // Move the displayed progress towards the target for a smooth effect.
+    // The multiplier is increased to 0.2 for a faster, more responsive feel.
     const difference = targetProgress - displayedProgress;
     if (Math.abs(difference) > 0.001) {
         displayedProgress += difference * 0.2;
         progressBar.style.transform = `scaleX(${displayedProgress})`;
     } else if (targetProgress > displayedProgress) {
+        // Snap to the final target value when very close
         displayedProgress = targetProgress;
         progressBar.style.transform = `scaleX(${displayedProgress})`;
     }
+
+    // Continue the animation loop as long as there is progress to be shown
     if (targetProgress < 1 || displayedProgress < 1) {
         animationFrameId = requestAnimationFrame(animateProgressBar);
     }
 }
 
-function loadVRMWithProgress(url) {
+/**
+ * Overwrites the original loadVRM function to integrate progress updates.
+ * @param {string} url - The URL of the VRM model to load.
+ * @returns {Promise<VRM>} A promise that resolves with the loaded VRM object.
+ */
+function loadVRM(url) {
     return new Promise((resolve, reject) => {
-        loader.load(url, (gltf) => {
-            try {
-                const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm;
-                if (!vrm) { reject(new Error('Loaded file is not a valid VRM.')); return; }
-                safeRemoveVrmFromScene(currentVrm);
-                currentVrm = vrm;
-                scene.add(vrm.scene);
-                vrm.scene.rotation.y = Math.PI;
-                vrm.lookAt.target = camera;
-                aiManagedExpressions = vrm.expressionManager?.expressions?.map(e => e.expressionName || e.name).filter(name => !['aa','ih','ou','ee','oh','blink'].includes(name)) || [];
-                setupBlinking(vrm);
-                setupSideGlances(vrm);
-                setTimeout(() => ensureVrmVisible(vrm), 200);
-                resolve(vrm);
-            } catch (err) { reject(err); }
-        }, (progress) => {
-            if (progress.total > 0) {
-                const modelPct = progress.loaded / progress.total;
-                const displayPct = Math.round(Math.min(1, modelPct) * 100);
-                updateProgress(modelPct * progressWeights.model, `Loading Model... ${displayPct}%`);
+        loader.load(
+            url,
+            (gltf) => {
+                try {
+                    const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm || null;
+                    if (!vrm) {
+                        const errorMsg = 'Loaded GLTF did not contain a VRM object in userData.';
+                        reject(new Error(errorMsg)); return;
+                    }
+                    safeRemoveVrmFromScene(currentVrm);
+                    currentVrm = vrm;
+                    if (!scene.children.includes(vrm.scene)) scene.add(vrm.scene);
+                    vrm.scene.rotation.y = Math.PI;
+                    vrm.scene.visible = true;
+                    if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1);
+                    vrm.lookAt.target = camera;
+                    aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
+                        ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
+                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'].includes(name))
+                        : [];
+                    setupExpressionBindMaps(vrm);
+                    setupBlinking(vrm);
+                    setupSideGlances(vrm);
+                    setTimeout(() => ensureVrmVisible(vrm), 200);
+                    resolve(vrm);
+                } catch (err) {
+                    reject(err);
+                }
+            },
+            (progress) => {
+                if (progress.total > 0) {
+                    const modelPct = progress.loaded / progress.total;
+                    updateProgress(modelPct * progressWeights.model, `Loading Model... ${Math.round(modelPct * 100)}%`);
+                }
+            },
+            (error) => {
+                updateProgress(0, 'Error loading model!');
+                reject(error);
             }
-        }, reject);
+        );
     });
 }
 
-async function loadAnimationsWithProgress() {
+/**
+ * Overwrites the original loadAnimations to integrate progress updates.
+ */
+async function loadAnimations() {
     if (!currentVrm) return;
+
     mixer = new THREE.AnimationMixer(currentVrm.scene);
+    
+    // ====================================================================
+    //      FIXED CODE BLOCK: This listener is now more robust.
+    // ====================================================================
+    // It explicitly handles the end of one-shot animations like 'waving'
+    // to prevent the model from being left in an undefined state (T-pose).
     mixer.addEventListener('finished', (event) => {
-        if (event.action === textingIntroAction && textingLoopAction) setAnimation(textingLoopAction);
-        if (event.action === wavingAction && isTalking && talkingAction) setAnimation(talkingAction);
+        const finishedAction = event.action;
+        
+        // When the intro-to-texting animation finishes, smoothly transition to the texting loop.
+        if (finishedAction === textingIntroAction) {
+            setAnimation(textingLoopAction);
+        } 
+        // When the waving animation finishes, decide the next state.
+        else if (finishedAction === wavingAction) {
+            // If the character is supposed to be talking, transition to the talking animation.
+            if (isTalking) {
+                setAnimation(talkingAction);
+            } else {
+                // Otherwise, *always* return to the idle state to prevent a T-pose.
+                setAnimation(idleAction);
+            }
+        }
     });
+
     const animationFiles = [
         './animations/idle.vrma', './animations/idle1.vrma', './animations/talking.vrma',
         './animations/waving.vrma', './animations/texting.vrma'
     ];
     const progressPerAnimation = progressWeights.animations / animationFiles.length;
+
     const loadFile = async (url, name, index) => {
         try {
             const gltf = await loader.loadAsync(url);
@@ -1133,79 +1214,86 @@ async function loadAnimationsWithProgress() {
             return null;
         }
     };
-    const [idleAn, idle1An, talkAn, waveAn, textAn] = await Promise.all([
-        loadFile(animationFiles[0], 'Idle', 0), loadFile(animationFiles[1], 'Idle Variant', 1),
-        loadFile(animationFiles[2], 'Talking', 2), loadFile(animationFiles[3], 'Waving', 3),
+
+    const [
+        idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, textingAnimGltf
+    ] = await Promise.all([
+        loadFile(animationFiles[0], 'Idle', 0),
+        loadFile(animationFiles[1], 'Idle Variant', 1),
+        loadFile(animationFiles[2], 'Talking', 2),
+        loadFile(animationFiles[3], 'Waving', 3),
         loadFile(animationFiles[4], 'Texting', 4)
     ]);
-    if (idleAn) {
-        const clip = createVRMAnimationClip(idleAn.userData.vrmAnimations[0], currentVrm);
-        idleAction = mixer.clipAction(clip);
+
+    // Process loaded animations...
+    if (idleAnimGltf) {
+        const idleClip = createVRMAnimationClip(idleAnimGltf.userData.vrmAnimations[0], currentVrm);
+        idleAction = mixer.clipAction(idleClip);
         idleAction.setLoop(THREE.LoopPingPong, Infinity).setEffectiveTimeScale(0.8).play();
         lastPlayedAction = idleAction;
     }
-    if (idle1An) {
-        const clip = createVRMAnimationClip(idle1An.userData.vrmAnimations[0], currentVrm);
-        idle1Action = mixer.clipAction(clip);
-        idle1Action.setLoop(THREE.LoopOnce, 0); // FIX: Removed clampWhenFinished for smooth transition
-        idle1Duration = clip.duration || 0;
+    if (idle1AnimGltf) {
+        const idle1Clip = createVRMAnimationClip(idle1AnimGltf.userData.vrmAnimations[0], currentVrm);
+        idle1Action = mixer.clipAction(idle1Clip);
+        idle1Action.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
+        idle1Duration = idle1Clip.duration || 0;
     }
-    if (talkAn) {
-        const clip = createVRMAnimationClip(talkAn.userData.vrmAnimations[0], currentVrm);
-        talkingAction = mixer.clipAction(clip);
+    if (talkingAnimGltf) {
+        const talkingClip = createVRMAnimationClip(talkingAnimGltf.userData.vrmAnimations[0], currentVrm);
+        talkingAction = mixer.clipAction(talkingClip);
         talkingAction.setLoop(THREE.LoopPingPong, Infinity);
     }
-    if (waveAn) {
-        const clip = createVRMAnimationClip(waveAn.userData.vrmAnimations[0], currentVrm);
-        wavingAction = mixer.clipAction(clip);
-        wavingAction.setLoop(THREE.LoopOnce, 0); // FIX: Removed clampWhenFinished for smooth transition
-        wavingDuration = clip.duration || 0;
+    if (wavingAnimGltf) {
+        const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
+        wavingAction = mixer.clipAction(wavingClip);
+        wavingAction.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
+        wavingDuration = wavingClip.duration || 0;
+    } else {
+        wavingAction = null; wavingDuration = 0;
     }
-    if (textAn) {
-        let clip = createVRMAnimationClip(textAn.userData.vrmAnimations[0], currentVrm);
-        clip.tracks = clip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
-        const introClip = AnimationUtils.subclip(clip, 'textIntro', 0, 30, 30);
-        const loopClip = AnimationUtils.subclip(clip, 'textLoop', 30, clip.duration * 30, 30);
+    if (textingAnimGltf) {
+        let originalClip = createVRMAnimationClip(textingAnimGltf.userData.vrmAnimations[0], currentVrm);
+        originalClip.tracks = originalClip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
+        const fps = 30;
+        const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
+        const clipEndFrame = Math.floor(originalClip.duration * fps);
+        const introClip = AnimationUtils.subclip(originalClip, 'textingIntro', 0, introEndFrame, fps);
+        const loopClip = AnimationUtils.subclip(originalClip, 'textingLoop', introEndFrame, clipEndFrame, fps);
         textingIntroAction = mixer.clipAction(introClip);
-        textingIntroAction.setLoop(THREE.LoopOnce); // FIX: Removed clampWhenFinished for smooth transition
+        textingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
         textingLoopAction = mixer.clipAction(loopClip);
         textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
     }
+    
     scheduleIdle1();
 }
 
+/**
+ * The main initialization function. It orchestrates the loading process.
+ */
 async function initializeScene() {
+    // Start the smooth animation loop
     animateProgressBar();
+
     try {
-        await loadVRMWithProgress('./models/model.vrm');
-        await loadAnimationsWithProgress();
-        updateProgress(1, 'Finished!');
+        await loadVRM('./models/model.vrm');
+        await loadAnimations();
         
+        // Final update to ensure the bar reaches 100%
+        updateProgress(1, 'Finished!');
+
+        // Hide the loading screen immediately once loading is complete.
+        // The bar will smoothly animate to 100% and then the screen will fade.
         loadingOverlay.classList.add('hidden');
-
-        // This timeout matches the CSS transition duration for the loading overlay.
         setTimeout(() => {
-            // Final cleanup
             loadingOverlay.style.display = 'none';
-            cancelAnimationFrame(animationFrameId);
+            cancelAnimationFrame(animationFrameId); // Stop the loop to save resources
+        }, 750); // Match CSS transition for a clean exit
 
-            // Play the initial waving animation
-            if (wavingAction) {
-                setAnimation(wavingAction);
-                // After the wave finishes, return to idle.
-                setTimeout(() => {
-                    // Only return to idle if another action hasn't interrupted the wave.
-                    if (idleAction && lastPlayedAction === wavingAction) {
-                        setAnimation(idleAction);
-                    }
-                }, wavingDuration * 1000); // wavingDuration is in seconds
-            }
-
-        }, 750); 
     } catch (error) {
         console.error("Initialization failed:", error);
         updateProgress(targetProgress, "Failed to initialize. Please refresh.");
-        cancelAnimationFrame(animationFrameId);
+        cancelAnimationFrame(animationFrameId); // Stop the loop on error
     }
 }
 
@@ -1231,6 +1319,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
