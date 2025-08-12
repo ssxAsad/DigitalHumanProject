@@ -319,6 +319,7 @@ function scheduleIdle1() {
     setTimeout(() => {
         try {
             const canSwitch = lastPlayedAction === idleAction && !isTalking && !isTextOutputOn;
+            // FIX: Check if idle1Action exists before trying to play it.
             if (canSwitch && idle1Action) {
                 setAnimation(idle1Action);
                 setTimeout(() => {
@@ -331,6 +332,7 @@ function scheduleIdle1() {
 }
 
 function setAnimation(actionToPlay) {
+    // FIX: Add a check to ensure actionToPlay is a valid object.
     if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
     const actionToFadeOut = lastPlayedAction;
     const fadeDuration = 0.5;
@@ -461,7 +463,6 @@ function dumpMorphsAndExpressions() {
         } catch(e){}
     } catch(e){ console.warn('dumpMorphsAndExpressions error', e); }
 }
-
 
 /* =========================================================
    10. RENDER / UPDATE LOOP (drives visemes + animations)
@@ -1106,6 +1107,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
