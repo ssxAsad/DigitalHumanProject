@@ -199,7 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Call it once on load to set the initial state correctly
     onWindowResize();
 
-   
 /* =========================================================
    9. VRM & ANIMATION HELPERS (SAFE)
    ========================================================= */
@@ -227,10 +226,6 @@ function safeRemoveVrmFromScene(vrm) {
         if (!vrm) return;
         if (vrm.scene && scene && scene.children.includes(vrm.scene)) {
             scene.remove(vrm.scene);
-            console.log('Removed previous VRM scene from scene graph.');
-        } else {
-            // Not present in scene — nothing to remove
-            console.log('Previous VRM not present in scene (no removal necessary).');
         }
     } catch (e) {
         console.warn('safeRemoveVrmFromScene error:', e);
@@ -249,7 +244,6 @@ function ensureVrmVisible(vrm) {
             }
         });
         vrm.scene.updateMatrixWorld(true);
-        console.log('Ensured VRM scene visible and materials flagged for update.');
     } catch (e) {
         console.warn('ensureVrmVisible error:', e);
     }
@@ -319,7 +313,6 @@ function scheduleIdle1() {
     setTimeout(() => {
         try {
             const canSwitch = lastPlayedAction === idleAction && !isTalking && !isTextOutputOn;
-            // FIX: Check if idle1Action exists before trying to play it.
             if (canSwitch && idle1Action) {
                 setAnimation(idle1Action);
                 setTimeout(() => {
@@ -332,7 +325,6 @@ function scheduleIdle1() {
 }
 
 function setAnimation(actionToPlay) {
-    // FIX: Add a check to ensure actionToPlay is a valid object.
     if (!mixer || !actionToPlay || actionToPlay === lastPlayedAction) return;
     const actionToFadeOut = lastPlayedAction;
     const fadeDuration = 0.5;
@@ -351,126 +343,14 @@ function isGreetingPrompt(userText) {
         const greetingRegex = /\b(hi|hello|hey|greetings|yo)\b/i;
         return greetingRegex.test(userText);
     } catch (e) { return false; }
-}
+} 
 
-// ---------- Expression bind helpers (defensive) ----------
-function setupExpressionBindMaps(vrm) {
-    try {
-        expressionBindMap = {};
-        nonMouthExpressionBindMap = {};
-
-        if (!vrm || !vrm.expressionManager || !Array.isArray(vrm.expressionManager.expressions)) {
-            console.warn('No expressionManager.expressions available to build bind maps.');
-            return;
-        }
-
-        const morphIndexToNameCache = new WeakMap();
-        vrm.scene.traverse((obj) => {
-            try {
-                if (obj.isMesh && obj.morphTargetDictionary) {
-                    const rev = {};
-                    for (const name in obj.morphTargetDictionary) {
-                        rev[obj.morphTargetDictionary[name]] = name;
-                    }
-                    morphIndexToNameCache.set(obj, rev);
-                }
-            } catch (e) {}
-        });
-
-        const mouthCandidates = new Set();
-        const expressions = vrm.expressionManager.expressions || [];
-        expressions.forEach(expr => {
-            const name = expr.expressionName || expr.name;
-            const binds = Array.isArray(expr.binds) ? expr.binds : (expr._binds || []);
-            expressionBindMap[name] = binds || [];
-
-            const nonMouthBinds = (binds || []).filter(bind => {
-                try {
-                    if (!bind || !bind.primitives || bind.primitives.length === 0) return true;
-                    const prim = bind.primitives[0];
-                    const rev = morphIndexToNameCache.get(prim);
-                    if (!rev) return true;
-                    const idx = (typeof bind.index === 'number') ? bind.index : (bind.morphTargetIndex ?? bind.index ?? null);
-                    if (idx === null) return true;
-                    const morphName = (rev[idx] || '').toLowerCase();
-
-                    const isMouth = morphName.includes('mouth') ||
-                                    morphName.includes('lip') ||
-                                    morphName.includes('jaw') ||
-                                    morphName.includes('tong') ||
-                                    /fcl_?mth/i.test(morphName) ||
-                                    /_a$|_i$|_ou$|_aa$|_ee$|_ih$/i.test(morphName) ||
-                                    ['a','i','o','e','u'].includes(morphName);
-
-                    if (isMouth) mouthCandidates.add(morphName);
-                    return !isMouth;
-                } catch (e) {
-                    return true;
-                }
-            });
-
-            nonMouthExpressionBindMap[name] = nonMouthBinds;
-        });
-
-        console.log('Expression bind maps prepared:', Object.keys(expressionBindMap).length, 'expressions.');
-        if (mouthCandidates.size > 0) {
-            console.log('Detected mouth-like morph names (examples):', Array.from(mouthCandidates).slice(0, 15));
-        } else {
-            console.log('No obvious mouth-like morph names detected by heuristics — run dumpMorphsAndExpressions() for details.');
-        }
-    } catch (err) {
-        console.warn('setupExpressionBindMaps errored:', err);
-    }
-}
-
-function applyEmotionNonMouth(vrm, name, weight = 1.0) {
-    try {
-        if (!vrm || !vrm.expressionManager || !name) return;
-        const allBinds = expressionBindMap[name] || [];
-        const keepBinds = nonMouthExpressionBindMap[name] || allBinds;
-
-        allBinds.forEach(b => {
-            try { if (b && typeof b.clearAppliedWeight === 'function') b.clearAppliedWeight(); } catch(e){}
-        });
-
-        keepBinds.forEach(b => {
-            try { if (b && typeof b.applyWeight === 'function') b.applyWeight(weight); } catch(e){}
-        });
-
-        // fallback: set expressionManager value (may include mouth — visemes override immediately)
-        try { if (typeof vrm.expressionManager.setValue === 'function') vrm.expressionManager.setValue(name, weight); } catch(e){}
-    } catch (err) {}
-}
-
-// Debug helper that prints mesh morphs & expressions
-function dumpMorphsAndExpressions() {
-    try {
-        if (!currentVrm) { console.warn('No currentVrm'); return; }
-        console.log('--- DUMP: Mesh morph targets ---');
-        currentVrm.scene.traverse(o => {
-            try {
-                if (o.isMesh && o.morphTargetDictionary) {
-                    console.log('mesh:', o.name || o.uuid, Object.keys(o.morphTargetDictionary));
-                }
-            } catch(e){}
-        });
-        console.log('--- DUMP: Expressions ---');
-        try {
-            const exprs = currentVrm.expressionManager?.expressions || [];
-            exprs.forEach(ex => {
-                console.log('expr:', ex.expressionName || ex.name, 'binds:', Array.isArray(ex.binds) ? ex.binds.length : (ex._binds ? ex._binds.length : 0));
-            });
-        } catch(e){}
-    } catch(e){ console.warn('dumpMorphsAndExpressions error', e); }
-}
 
 /* =========================================================
    10. RENDER / UPDATE LOOP (drives visemes + animations)
    ========================================================= */
 function updateVisemesSafe() {
     if (!currentVrm || !currentVrm.expressionManager) return;
-
-    // If we are not talking, ensure the mouth is closed and reset the state.
     if (!isTalking) {
         if (lastAppliedViseme.shape !== 'sil') {
             const lastMappedShape = VISEME_MAPPING[lastAppliedViseme.shape] || lastAppliedViseme.shape;
@@ -479,66 +359,40 @@ function updateVisemesSafe() {
         }
         return;
     }
-
     if (!audioContext || audioPlaybackStartTime === 0) return;
-
     const elapsedTime = audioContext.currentTime - audioPlaybackStartTime;
-
-    // Find the most recent viseme that should be active based on elapsed audio time.
     let newViseme = lastAppliedViseme;
     while (visemeQueue.length > 0 && elapsedTime >= visemeQueue[0].time) {
         newViseme = visemeQueue.shift();
     }
-
-    // If the active viseme hasn't changed since the last frame, do nothing.
     if (newViseme.shape === lastAppliedViseme.shape) return;
-
-    // Turn off the old viseme shape.
     const oldMappedShape = VISEME_MAPPING[lastAppliedViseme.shape] || lastAppliedViseme.shape;
     if (oldMappedShape !== 'sil') {
         try { currentVrm.expressionManager.setValue(oldMappedShape, 0); } catch(e){}
     }
-
-    // Turn on the new viseme shape.
     const newMappedShape = VISEME_MAPPING[newViseme.shape] || newViseme.shape;
     if (newMappedShape !== 'sil') {
         try { currentVrm.expressionManager.setValue(newMappedShape, 1.0); } catch(e){}
     }
-
     lastAppliedViseme = newViseme;
 }
 
 function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
+
     if (mixer) {
         try { mixer.update(delta); } catch(e) {}
     }
 
-    if (currentVrm && currentVrm.expressionManager) {
-        // First, reset all AI-managed expressions to 0 to prevent conflicts.
-        aiManagedExpressions.forEach(name => {
-            if (name !== activeEmotionName) {
-                try { currentVrm.expressionManager.setValue(name, 0); } catch(e){}
-            }
-        });
-
-        if (isTalking) {
-            // When talking, prioritize lip-sync. We stop applying the main emotion
-            // and ensure a neutral 'relaxed' expression is the base.
-            try { currentVrm.expressionManager.setValue('relaxed', 1.0); } catch(e) {}
-            if(activeEmotionName !== 'relaxed') {
-               try { currentVrm.expressionManager.setValue(activeEmotionName, 0); } catch(e) {}
-            }
-
-        } else {
-            // When not talking, apply the current emotion as usual.
-            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight || 1.0); } catch(e) {}
+    if (currentVrm) {
+        // Apply the primary emotion, which will not fight with animation-driven expressions.
+        if (activeEmotionName) {
+            try { currentVrm.expressionManager.setValue(activeEmotionName, activeEmotionWeight); } catch (e) {}
         }
-
-        // Apply visemes on top of the base expression. This will override the mouth shape.
+        // Apply visemes for lip-sync, which will override only the mouth.
         try { updateVisemesSafe(); } catch (e) {}
-
+        // Let the VRM core update spring bones, look-at, etc.
         try { currentVrm.update(delta); } catch(e) {}
     }
 
@@ -599,9 +453,8 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             rough.forEach(sentence => {
                 const trimmed = sentence.trim();
                 if (!trimmed) return;
-                if (trimmed.length <= 140) {
-                    out.push(trimmed);
-                } else {
+                if (trimmed.length <= 140) { out.push(trimmed); }
+                else {
                     let s = trimmed;
                     while (s.length > 0) {
                         let piece = s.slice(0, 140);
@@ -619,7 +472,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             isTalking = false;
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
-            setAnimation(idleAction);
+            if (idleAction) setAnimation(idleAction);
             resolve();
         };
 
@@ -634,45 +487,23 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 const audioBuffers = [];
                 let totalDuration = 0;
 
-                // Step 1: Fetch and decode all audio chunks first.
                 for (const chunkText of chunks) {
                     const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            voiceId,
-                            payload: {
-                                text: chunkText,
-                                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-                            }
-                        })
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ voiceId, payload: { text: chunkText, voice_settings: { stability: 0.5, similarity_boost: 0.75 } } })
                     });
-
-                    if (!ttsResponse.ok) {
-                        const errText = await ttsResponse.text().catch(() => 'TTS request failed');
-                        throw new Error(errText);
-                    }
-
-                    // FIX: Process the response as a raw audio file, not JSON.
+                    if (!ttsResponse.ok) { throw new Error(await ttsResponse.text().catch(() => 'TTS request failed')); }
                     const audioData = await ttsResponse.arrayBuffer();
                     const decodedBuffer = await audioContext.decodeAudioData(audioData);
                     audioBuffers.push(decodedBuffer);
                     totalDuration += decodedBuffer.duration;
                 }
 
-                if (audioBuffers.length === 0) {
-                    endPlayback();
-                    return;
-                }
+                if (audioBuffers.length === 0) { endPlayback(); return; }
 
-                // Step 2: Start the animation.
-                if (isGreeting && wavingAction) {
-                    setAnimation(wavingAction);
-                } else {
-                    setAnimation(talkingAction);
-                }
+                if (isGreeting && wavingAction) { setAnimation(wavingAction); }
+                else if (talkingAction) { setAnimation(talkingAction); }
 
-                // Step 3: Play all decoded audio buffers sequentially.
                 let startTime = audioContext.currentTime;
                 for (const buffer of audioBuffers) {
                     const source = audioContext.createBufferSource();
@@ -681,10 +512,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     source.start(startTime);
                     startTime += buffer.duration;
                 }
-
-                // Step 4: Wait for all audio to finish, then end the playback state.
                 setTimeout(endPlayback, totalDuration * 1000);
-
             } catch (err) {
                 console.error("Error playing response:", err);
                 endPlayback();
@@ -845,10 +673,10 @@ async function handleSendMessage() {
         isTextOutputOn = !isTextOutputOn;
         toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
         if (isTextOutputOn) {
-            setAnimation(textingIntroAction);
+            if (textingIntroAction) setAnimation(textingIntroAction);
         } else {
             hideBubble(textBubble);
-            setAnimation(idleAction);
+            if (idleAction) setAnimation(idleAction);
         }
     });
     toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
@@ -857,7 +685,6 @@ async function handleSendMessage() {
         apiMode = apiMode === 'online' ? 'local' : 'online';
         modeToggleButton.textContent = apiMode === 'online' ? 'Online' : 'Local';
         modeToggleButton.classList.toggle('toggle-off', apiMode === 'local');
-
         if (conversationHistory.length > 0) {
             conversationHistory = [];
             showBubble(textBubble, `<span class="fire-text">Switched to ${apiMode} mode. History cleared.</span>`, 3000);
@@ -867,128 +694,69 @@ async function handleSendMessage() {
 /* =========================================================
    16. LOADING SCREEN ORCHESTRATOR
    ========================================================= */
+const progressWeights = { model: 0.7, animations: 0.3 };
+let targetProgress = 0;
+let displayedProgress = 0;
+let animationFrameId;
 
-// This section manages the initial loading sequence. It uses a weighted
-// progress system and a requestAnimationFrame loop for a fast, smooth,
-// and real-time visual progress bar.
-
-// --- Configuration for Weighted Progress ---
-const progressWeights = {
-    model: 0.7,      // The VRM model takes up 70% of the progress bar
-    animations: 0.3  // All animations combined take up 30%
-};
-
-// --- State for Smooth Animation Loop ---
-let targetProgress = 0;      // The actual loading progress (0 to 1)
-let displayedProgress = 0;   // The progress currently shown on screen (0 to 1)
-let animationFrameId;        // To control the animation loop
-
-/**
- * Updates the target progress and text. The animation loop will then
- * smoothly move the visual bar to this new target.
- * @param {number} newProgress - The new target progress value (0 to 1).
- * @param {string} newText - The new text to display.
- */
 function updateProgress(newProgress, newText) {
-    // Clamp progress between the current value and 1 to prevent going backwards or over 100%
     targetProgress = Math.min(1, Math.max(targetProgress, newProgress));
     progressText.textContent = newText;
 }
 
-/**
- * The animation loop that runs every frame to smoothly update the progress bar.
- */
 function animateProgressBar() {
-    // Move the displayed progress towards the target for a smooth effect.
-    // The multiplier is increased to 0.2 for a faster, more responsive feel.
     const difference = targetProgress - displayedProgress;
     if (Math.abs(difference) > 0.001) {
         displayedProgress += difference * 0.2;
         progressBar.style.transform = `scaleX(${displayedProgress})`;
     } else if (targetProgress > displayedProgress) {
-        // Snap to the final target value when very close
         displayedProgress = targetProgress;
         progressBar.style.transform = `scaleX(${displayedProgress})`;
     }
-
-    // Continue the animation loop as long as there is progress to be shown
     if (targetProgress < 1 || displayedProgress < 1) {
         animationFrameId = requestAnimationFrame(animateProgressBar);
     }
 }
 
-/**
- * The single, definitive function for loading the VRM model.
- * It integrates progress updates with the orchestrator.
- * @param {string} url - The URL of the VRM model to load.
- * @returns {Promise<VRM>} A promise that resolves with the loaded VRM object.
- */
 function loadVRMWithProgress(url) {
     return new Promise((resolve, reject) => {
-        loader.load(
-            url,
-            (gltf) => {
-                try {
-                    const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm || null;
-                    if (!vrm) {
-                        const errorMsg = 'Loaded GLTF did not contain a VRM object in userData.';
-                        reject(new Error(errorMsg)); return;
-                    }
-                    safeRemoveVrmFromScene(currentVrm);
-                    currentVrm = vrm;
-                    if (!scene.children.includes(vrm.scene)) scene.add(vrm.scene);
-                    vrm.scene.rotation.y = Math.PI;
-                    vrm.scene.visible = true;
-                    if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1);
-                    vrm.lookAt.target = camera;
-                    aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
-                        ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
-                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'].includes(name))
-                        : [];
-                    setupExpressionBindMaps(vrm);
-                    setupBlinking(vrm);
-                    setupSideGlances(vrm);
-                    setTimeout(() => ensureVrmVisible(vrm), 200);
-                    resolve(vrm);
-                } catch (err) {
-                    reject(err);
-                }
-            },
-            (progress) => {
-                if (progress.total > 0) {
-                    const modelPct = progress.loaded / progress.total;
-                    // Defensive text update to prevent showing > 100%
-                    const displayPct = Math.round(Math.min(1, modelPct) * 100);
-                    updateProgress(modelPct * progressWeights.model, `Loading Model... ${displayPct}%`);
-                }
-            },
-            (error) => {
-                updateProgress(0, 'Error loading model!');
-                reject(error);
+        loader.load(url, (gltf) => {
+            try {
+                const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm;
+                if (!vrm) { reject(new Error('Loaded file is not a valid VRM.')); return; }
+                safeRemoveVrmFromScene(currentVrm);
+                currentVrm = vrm;
+                scene.add(vrm.scene);
+                vrm.scene.rotation.y = Math.PI;
+                vrm.lookAt.target = camera;
+                aiManagedExpressions = vrm.expressionManager?.expressions?.map(e => e.expressionName || e.name).filter(name => !['aa','ih','ou','ee','oh','blink'].includes(name)) || [];
+                setupBlinking(vrm);
+                setupSideGlances(vrm);
+                setTimeout(() => ensureVrmVisible(vrm), 200);
+                resolve(vrm);
+            } catch (err) { reject(err); }
+        }, (progress) => {
+            if (progress.total > 0) {
+                const modelPct = progress.loaded / progress.total;
+                const displayPct = Math.round(Math.min(1, modelPct) * 100);
+                updateProgress(modelPct * progressWeights.model, `Loading Model... ${displayPct}%`);
             }
-        );
+        }, reject);
     });
 }
 
-/**
- * The single, definitive function for loading all animations.
- * It integrates progress updates with the orchestrator.
- */
 async function loadAnimationsWithProgress() {
     if (!currentVrm) return;
-
     mixer = new THREE.AnimationMixer(currentVrm.scene);
     mixer.addEventListener('finished', (event) => {
-        if (event.action === textingIntroAction) setAnimation(textingLoopAction);
-        if (event.action === wavingAction && isTalking) setAnimation(talkingAction);
+        if (event.action === textingIntroAction && textingLoopAction) setAnimation(textingLoopAction);
+        if (event.action === wavingAction && isTalking && talkingAction) setAnimation(talkingAction);
     });
-
     const animationFiles = [
         './animations/idle.vrma', './animations/idle1.vrma', './animations/talking.vrma',
         './animations/waving.vrma', './animations/texting.vrma'
     ];
     const progressPerAnimation = progressWeights.animations / animationFiles.length;
-
     const loadFile = async (url, name, index) => {
         try {
             const gltf = await loader.loadAsync(url);
@@ -999,91 +767,64 @@ async function loadAnimationsWithProgress() {
             return null;
         }
     };
-
-    const [
-        idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, textingAnimGltf
-    ] = await Promise.all([
-        loadFile(animationFiles[0], 'Idle', 0),
-        loadFile(animationFiles[1], 'Idle Variant', 1),
-        loadFile(animationFiles[2], 'Talking', 2),
-        loadFile(animationFiles[3], 'Waving', 3),
+    const [idleAn, idle1An, talkAn, waveAn, textAn] = await Promise.all([
+        loadFile(animationFiles[0], 'Idle', 0), loadFile(animationFiles[1], 'Idle Variant', 1),
+        loadFile(animationFiles[2], 'Talking', 2), loadFile(animationFiles[3], 'Waving', 3),
         loadFile(animationFiles[4], 'Texting', 4)
     ]);
-
-    // Process loaded animations...
-    if (idleAnimGltf) {
-        const idleClip = createVRMAnimationClip(idleAnimGltf.userData.vrmAnimations[0], currentVrm);
-        idleAction = mixer.clipAction(idleClip);
+    if (idleAn) {
+        const clip = createVRMAnimationClip(idleAn.userData.vrmAnimations[0], currentVrm);
+        idleAction = mixer.clipAction(clip);
         idleAction.setLoop(THREE.LoopPingPong, Infinity).setEffectiveTimeScale(0.8).play();
         lastPlayedAction = idleAction;
     }
-    if (idle1AnimGltf) {
-        const idle1Clip = createVRMAnimationClip(idle1AnimGltf.userData.vrmAnimations[0], currentVrm);
-        idle1Action = mixer.clipAction(idle1Clip);
+    if (idle1An) {
+        const clip = createVRMAnimationClip(idle1An.userData.vrmAnimations[0], currentVrm);
+        idle1Action = mixer.clipAction(clip);
         idle1Action.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
-        idle1Duration = idle1Clip.duration || 0;
+        idle1Duration = clip.duration || 0;
     }
-    if (talkingAnimGltf) {
-        const talkingClip = createVRMAnimationClip(talkingAnimGltf.userData.vrmAnimations[0], currentVrm);
-        talkingAction = mixer.clipAction(talkingClip);
+    if (talkAn) {
+        const clip = createVRMAnimationClip(talkAn.userData.vrmAnimations[0], currentVrm);
+        talkingAction = mixer.clipAction(clip);
         talkingAction.setLoop(THREE.LoopPingPong, Infinity);
     }
-    if (wavingAnimGltf) {
-        const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
-        wavingAction = mixer.clipAction(wavingClip);
+    if (waveAn) {
+        const clip = createVRMAnimationClip(waveAn.userData.vrmAnimations[0], currentVrm);
+        wavingAction = mixer.clipAction(clip);
         wavingAction.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
-        wavingDuration = wavingClip.duration || 0;
-    } else {
-        wavingAction = null; wavingDuration = 0;
+        wavingDuration = clip.duration || 0;
     }
-    if (textingAnimGltf) {
-        let originalClip = createVRMAnimationClip(textingAnimGltf.userData.vrmAnimations[0], currentVrm);
-        originalClip.tracks = originalClip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
-        const fps = 30;
-        const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
-        const clipEndFrame = Math.floor(originalClip.duration * fps);
-        const introClip = AnimationUtils.subclip(originalClip, 'textingIntro', 0, introEndFrame, fps);
-        const loopClip = AnimationUtils.subclip(originalClip, 'textingLoop', introEndFrame, clipEndFrame, fps);
+    if (textAn) {
+        let clip = createVRMAnimationClip(textAn.userData.vrmAnimations[0], currentVrm);
+        clip.tracks = clip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
+        const introClip = AnimationUtils.subclip(clip, 'textIntro', 0, 30, 30);
+        const loopClip = AnimationUtils.subclip(clip, 'textLoop', 30, clip.duration * 30, 30);
         textingIntroAction = mixer.clipAction(introClip);
         textingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
         textingLoopAction = mixer.clipAction(loopClip);
         textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
     }
-    
     scheduleIdle1();
 }
 
-/**
- * The main initialization function. It orchestrates the loading process.
- */
 async function initializeScene() {
-    // Start the smooth animation loop
     animateProgressBar();
-
     try {
         await loadVRMWithProgress('./models/model.vrm');
         await loadAnimationsWithProgress();
-        
-        // Final update to ensure the bar reaches 100%
         updateProgress(1, 'Finished!');
-
-        // Hide the loading screen immediately once loading is complete.
-        // The bar will smoothly animate to 100% and then the screen will fade.
         loadingOverlay.classList.add('hidden');
         setTimeout(() => {
             loadingOverlay.style.display = 'none';
-            cancelAnimationFrame(animationFrameId); // Stop the loop to save resources
-        }, 750); // Match CSS transition for a clean exit
-
+            cancelAnimationFrame(animationFrameId);
+        }, 750);
     } catch (error) {
         console.error("Initialization failed:", error);
         updateProgress(targetProgress, "Failed to initialize. Please refresh.");
-        cancelAnimationFrame(animationFrameId); // Stop the loop on error
+        cancelAnimationFrame(animationFrameId);
     }
 }
-
-// Start the entire application.
-initializeScene();
 
 // Start the entire application.
 initializeScene();
@@ -1107,6 +848,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
