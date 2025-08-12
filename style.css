@@ -39,18 +39,18 @@ body, html {
 .bubble {
     display: none;
     position: absolute;
-    bottom: 120px;
+    top: 20px; /* Changed from bottom */
     left: 50%;
     transform: translateX(-50%);
     padding: 12px 20px;
     border-radius: 20px;
     max-width: 320px;
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 700; /* Made text bold */
     z-index: 10;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.4s ease-in-out, bottom 0.4s ease-in-out;
+    transition: opacity 0.4s ease-in-out, top 0.4s ease-in-out; /* Updated transition */
     text-align: center;
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
@@ -66,7 +66,6 @@ body, html {
     color: transparent;
     -webkit-text-fill-color: transparent;
 }
-
 
 /* =======================================
    4. CHAT UI STYLES
@@ -117,7 +116,7 @@ body, html {
 
 #chat-input::placeholder {
     color: #aaa;
-    font-size: 16px; /* Default placeholder size */
+    font-size: clamp(12px, 3.5vw, 15px); /* Refined dynamic font size */
     transition: font-size 0.3s ease;
 }
 
@@ -228,10 +227,6 @@ body, html {
         font-size: 16px; /* Keep font readable */
     }
 
-    #chat-input::placeholder {
-        font-size: 15px; /* Adjust placeholder font for mobile */
-    }
-
     .action-button {
         padding: 12px;
         font-size: 15px;
@@ -244,7 +239,7 @@ body, html {
     .bubble {
         max-width: 90%;
         font-size: 15px;
-        bottom: calc(85px + env(safe-area-inset-bottom)); 
+        top: calc(15px + env(safe-area-inset-top)); /* Changed to top with safe-area */
     }
 }
 
@@ -262,10 +257,6 @@ body, html {
         padding: 12px 10px;
     }
 
-    #chat-input::placeholder {
-        font-size: 14px; /* Match input font on tiny screens */
-    }
-
     .action-button {
         padding: 12px 8px; /* Reduce padding to allow shrinking */
         font-size: 12px; /* Smaller font for smaller buttons */
@@ -276,6 +267,6 @@ body, html {
     }
     
     .bubble {
-        bottom: calc(75px + env(safe-area-inset-bottom)); 
+        top: calc(15px + env(safe-area-inset-top)); /* Changed to top with safe-area */
     }
 }
