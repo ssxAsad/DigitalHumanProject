@@ -1288,6 +1288,18 @@ async function initializeScene() {
         setTimeout(() => {
             loadingOverlay.style.display = 'none';
             cancelAnimationFrame(animationFrameId); // Stop the loop to save resources
+
+            // ====================================================================
+            //      THE ONLY CHANGE: Play the initial waving animation here.
+            // ====================================================================
+            // By placing this call here, we ensure the wave happens exactly
+            // once after the loading screen is fully gone. The robust animation
+            // system we already fixed will handle the smooth transition
+            // from waving back to idle automatically.
+            if (wavingAction) {
+                setAnimation(wavingAction);
+            }
+
         }, 750); // Match CSS transition for a clean exit
 
     } catch (error) {
@@ -1319,6 +1331,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
