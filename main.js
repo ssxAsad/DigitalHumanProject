@@ -781,7 +781,7 @@ async function loadAnimationsWithProgress() {
     if (idle1An) {
         const clip = createVRMAnimationClip(idle1An.userData.vrmAnimations[0], currentVrm);
         idle1Action = mixer.clipAction(clip);
-        idle1Action.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
+        idle1Action.setLoop(THREE.LoopOnce, 0); // FIX: Removed clampWhenFinished for smooth transition
         idle1Duration = clip.duration || 0;
     }
     if (talkAn) {
@@ -792,7 +792,7 @@ async function loadAnimationsWithProgress() {
     if (waveAn) {
         const clip = createVRMAnimationClip(waveAn.userData.vrmAnimations[0], currentVrm);
         wavingAction = mixer.clipAction(clip);
-        wavingAction.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
+        wavingAction.setLoop(THREE.LoopOnce, 0); // FIX: Removed clampWhenFinished for smooth transition
         wavingDuration = clip.duration || 0;
     }
     if (textAn) {
@@ -801,7 +801,7 @@ async function loadAnimationsWithProgress() {
         const introClip = AnimationUtils.subclip(clip, 'textIntro', 0, 30, 30);
         const loopClip = AnimationUtils.subclip(clip, 'textLoop', 30, clip.duration * 30, 30);
         textingIntroAction = mixer.clipAction(introClip);
-        textingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
+        textingIntroAction.setLoop(THREE.LoopOnce); // FIX: Removed clampWhenFinished for smooth transition
         textingLoopAction = mixer.clipAction(loopClip);
         textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
     }
@@ -823,7 +823,7 @@ async function initializeScene() {
             loadingOverlay.style.display = 'none';
             cancelAnimationFrame(animationFrameId);
 
-            // --- NEW: Play the initial waving animation ---
+            // Play the initial waving animation
             if (wavingAction) {
                 setAnimation(wavingAction);
                 // After the wave finishes, return to idle.
@@ -834,7 +834,6 @@ async function initializeScene() {
                     }
                 }, wavingDuration * 1000); // wavingDuration is in seconds
             }
-            // --- END NEW ---
 
         }, 750); 
     } catch (error) {
@@ -866,6 +865,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
