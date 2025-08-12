@@ -814,7 +814,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadFile(animationFiles[1], 'Idle Variant', 1),
             loadFile(animationFiles[2], 'Talking', 2),
             loadFile(animationFiles[3], 'Waving', 3),
-            loadFile(animationFiles[4], 'Texting', 4)
+            loadFile(animationFiles[4], 'Texting', 4),
             loadFile(animationFiles[5], 'Thinking', 5)
         ]);
 
@@ -918,5 +918,6 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
