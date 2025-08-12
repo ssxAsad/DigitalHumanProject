@@ -1246,7 +1246,8 @@ async function loadAnimations() {
     if (wavingAnimGltf) {
         const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
         wavingAction = mixer.clipAction(wavingClip);
-        wavingAction.setLoop(THREE.LoopOnce, 0).clampWhenFinished = true;
+        wavingAction.setLoop(THREE.LoopOnce, 0);
+        wavingAction.clampWhenFinished = false;
         wavingDuration = wavingClip.duration || 0;
     } else {
         wavingAction = null; wavingDuration = 0;
@@ -1331,6 +1332,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
