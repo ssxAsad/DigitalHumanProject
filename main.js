@@ -410,7 +410,7 @@ async function loadAnimations() {
     try {
         mixer = new THREE.AnimationMixer(currentVrm.scene);
 
-        // --- IMPORTANT: This listener is updated to prevent T-posing ---
+        // This listener centralizes animation transitions to prevent T-posing and race conditions.
         mixer.addEventListener('finished', (event) => {
             const finishedAction = event.action;
 
@@ -782,8 +782,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             rough.forEach(sentence => {
                 const trimmed = sentence.trim();
                 if (!trimmed) return;
-                if (trimmed.length <= 140) { out.push(trimmed); }
-                else {
+                if (trimmed.length <= 140) {
+                    out.push(trimmed);
+                } else {
                     let s = trimmed;
                     while (s.length > 0) {
                         let piece = s.slice(0, 140);
@@ -801,7 +802,13 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             isTalking = false;
             activeEmotionName = 'relaxed';
             activeEmotionWeight = 1.0;
-            if (idleAction) setAnimation(idleAction);
+
+            // CRITICAL FIX: Only transition to idle if the character is currently in a
+            // talking-related animation. This prevents overriding other states (like texting)
+            // that might have been triggered by the user during playback.
+            if (lastPlayedAction === talkingAction || lastPlayedAction === wavingAction) {
+                setAnimation(idleAction);
+            }
             resolve();
         };
 
@@ -816,23 +823,45 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 const audioBuffers = [];
                 let totalDuration = 0;
 
+                // Step 1: Fetch and decode all audio chunks first.
                 for (const chunkText of chunks) {
                     const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
-                        method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ voiceId, payload: { text: chunkText, voice_settings: { stability: 0.5, similarity_boost: 0.75 } } })
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            voiceId,
+                            payload: {
+                                text: chunkText,
+                                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                            }
+                        })
                     });
-                    if (!ttsResponse.ok) { throw new Error(await ttsResponse.text().catch(() => 'TTS request failed')); }
+
+                    if (!ttsResponse.ok) {
+                        const errText = await ttsResponse.text().catch(() => 'TTS request failed');
+                        throw new Error(errText);
+                    }
+
+                    // FIX: Process the response as a raw audio file, not JSON.
                     const audioData = await ttsResponse.arrayBuffer();
                     const decodedBuffer = await audioContext.decodeAudioData(audioData);
                     audioBuffers.push(decodedBuffer);
                     totalDuration += decodedBuffer.duration;
                 }
 
-                if (audioBuffers.length === 0) { endPlayback(); return; }
+                if (audioBuffers.length === 0) {
+                    endPlayback();
+                    return;
+                }
 
-                if (isGreeting && wavingAction) { setAnimation(wavingAction); }
-                else if (talkingAction) { setAnimation(talkingAction); }
+                // Step 2: Start the animation. The 'finished' listener will handle transitions.
+                if (isGreeting && wavingAction) {
+                    setAnimation(wavingAction);
+                } else {
+                    setAnimation(talkingAction);
+                }
 
+                // Step 3: Play all decoded audio buffers sequentially.
                 let startTime = audioContext.currentTime;
                 for (const buffer of audioBuffers) {
                     const source = audioContext.createBufferSource();
@@ -841,7 +870,10 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     source.start(startTime);
                     startTime += buffer.duration;
                 }
+
+                // Step 4: Wait for all audio to finish, then end the playback state.
                 setTimeout(endPlayback, totalDuration * 1000);
+
             } catch (err) {
                 console.error("Error playing response:", err);
                 endPlayback();
@@ -1194,6 +1226,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
