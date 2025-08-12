@@ -201,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
    
 /* =========================================================
-   9. VRM LOADING, ANIMATIONS & EXPRESSION HELPERS (SAFE)
+   9. VRM & ANIMATION HELPERS (SAFE)
    ========================================================= */
 let currentVrm = null;
 let mixer = null;
@@ -253,80 +253,6 @@ function ensureVrmVisible(vrm) {
     } catch (e) {
         console.warn('ensureVrmVisible error:', e);
     }
-}
-
-function loadVRM(url) {
-    loader.load(
-        url,
-        (gltf) => {
-            try {
-                const vrm = gltf.userData?.vrm || gltf.userData?.gltfVrm || null;
-                if (!vrm) {
-                    console.error('Loaded GLTF did not contain a VRM object in userData.');
-                    return;
-                }
-
-                // Safely remove previous VRM from scene (do not dispose resources here)
-                safeRemoveVrmFromScene(currentVrm);
-
-                // Replace currentVrm with the newly loaded one
-                currentVrm = vrm;
-
-                // Add new VRM scene (ensure we don't accidentally add a duplicate)
-                try {
-                    if (!scene.children.includes(vrm.scene)) {
-                        scene.add(vrm.scene);
-                        console.log('Added new VRM.scene to scene.');
-                    } else {
-                        console.log('VRM.scene was already present in scene.');
-                    }
-                } catch (e) {
-                    console.warn('Failed to add vrm.scene to scene:', e);
-                }
-
-                // Defensive visibility + orientation fixes
-                try { vrm.scene.rotation.y = Math.PI; } catch(e){}
-                try { vrm.scene.visible = true; } catch(e){}
-                try { if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1); } catch(e){}
-                try { vrm.lookAt.target = camera; } catch(e){}
-
-                // Build list of AI-manageable expression names (filter known viseme/blink shapes)
-                try {
-                    aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
-                        ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
-                            .filter(name => !['aa','ih','ou','ee','oh','blink','blinkLeft','blinkRight'].includes(name))
-                        : [];
-                } catch (e) {
-                    aiManagedExpressions = [];
-                }
-
-                console.log("VRM Model loaded. AI can control:", aiManagedExpressions);
-
-                // Setup expression bind maps gently — if it fails, we'll still proceed.
-                try { setupExpressionBindMaps(vrm); } catch (e) { console.warn("setupExpressionBindMaps failed:", e); }
-
-                // Load animations & setup helpers (these are async and have their own try/catch)
-                loadAnimations();
-                setupBlinking(vrm);
-                setupSideGlances(vrm);
-
-                // Ensure scene is visible a short time after load (fallback for odd timing issues)
-                setTimeout(() => ensureVrmVisible(vrm), 200);
-
-            } catch (err) {
-                console.error('Error in loadVRM callback:', err);
-            }
-        },
-        (progress) => {
-            try {
-                const pct = Math.round(100.0 * (progress.loaded / progress.total));
-                console.log('Loading model.', pct, '%');
-            } catch(e){}
-        },
-        (error) => {
-            console.error('Error loading VRM:', error);
-        }
-    );
 }
 
 // ---- Expression / animation helpers (defensive, lightweight) ----
@@ -402,82 +328,6 @@ function scheduleIdle1() {
         } catch(e){}
         scheduleIdle1();
     }, nextTime);
-}
-
-async function loadAnimations() {
-    if (!currentVrm) return;
-    try {
-        mixer = new THREE.AnimationMixer(currentVrm.scene);
-        mixer.addEventListener('finished', (event) => {
-            try {
-                if (event.action === textingIntroAction) setAnimation(textingLoopAction);
-                if (event.action === wavingAction && isTalking) setAnimation(talkingAction);
-            } catch(e){}
-        });
-
-        // Idle
-        try {
-            const idleAnimGltf = await loader.loadAsync('./animations/idle.vrma');
-            const idleClip = createVRMAnimationClip(idleAnimGltf.userData.vrmAnimations[0], currentVrm);
-            idleAction = mixer.clipAction(idleClip);
-            idleAction.setLoop(THREE.LoopPingPong, Infinity);
-            idleAction.setEffectiveTimeScale(0.8);
-            idleAction.play();
-            lastPlayedAction = idleAction;
-        } catch(e){ console.warn('idle animation load failed', e); }
-
-        // Idle1
-        try {
-            const idle1AnimGltf = await loader.loadAsync('./animations/idle1.vrma');
-            const idle1Clip = createVRMAnimationClip(idle1AnimGltf.userData.vrmAnimations[0], currentVrm);
-            idle1Action = mixer.clipAction(idle1Clip);
-            idle1Action.setLoop(THREE.LoopOnce, 0);
-            idle1Action.clampWhenFinished = true;
-            idle1Duration = idle1Clip.duration || 0;
-        } catch(e){ console.warn('idle1 load failed', e); }
-
-        // Talking
-        try {
-            const talkingAnimGltf = await loader.loadAsync('./animations/talking.vrma');
-            const talkingClip = createVRMAnimationClip(talkingAnimGltf.userData.vrmAnimations[0], currentVrm);
-            talkingAction = mixer.clipAction(talkingClip);
-            talkingAction.setLoop(THREE.LoopPingPong, Infinity);
-        } catch(e){ console.warn('talking animation load failed', e); }
-
-        // Waving (optional)
-        try {
-            const wavingAnimGltf = await loader.loadAsync('./animations/waving.vrma');
-            const wavingClip = createVRMAnimationClip(wavingAnimGltf.userData.vrmAnimations[0], currentVrm);
-            wavingAction = mixer.clipAction(wavingClip);
-            wavingAction.setLoop(THREE.LoopOnce, 0);
-            wavingAction.clampWhenFinished = true;
-            wavingDuration = wavingClip.duration || 0;
-        } catch(e){ wavingAction = null; wavingDuration = 0; }
-
-        scheduleIdle1();
-
-        // Texting (split intro/loop)
-        try {
-            const textingAnimGltf = await loader.loadAsync('./animations/texting.vrma');
-            let originalClip = createVRMAnimationClip(textingAnimGltf.userData.vrmAnimations[0], currentVrm);
-            originalClip.tracks = originalClip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
-            const fps = 30;
-            const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
-            const clipEndFrame = Math.floor(originalClip.duration * fps);
-            const introClip = AnimationUtils.subclip(originalClip, 'textingIntro', 0, introEndFrame, fps);
-            const loopClip = AnimationUtils.subclip(originalClip, 'textingLoop', introEndFrame, clipEndFrame, fps);
-            textingIntroAction = mixer.clipAction(introClip);
-            textingIntroAction.setLoop(THREE.LoopOnce);
-            textingIntroAction.clampWhenFinished = true;
-            textingIntroAction.setEffectiveTimeScale(0.8);
-            textingLoopAction = mixer.clipAction(loopClip);
-            textingLoopAction.setLoop(THREE.LoopPingPong);
-            textingLoopAction.setEffectiveTimeScale(0.8);
-        } catch(e){ console.warn('texting animation load failed', e); }
-
-    } catch (err) {
-        console.error('loadAnimations error:', err);
-    }
 }
 
 function setAnimation(actionToPlay) {
@@ -611,9 +461,6 @@ function dumpMorphsAndExpressions() {
         } catch(e){}
     } catch(e){ console.warn('dumpMorphsAndExpressions error', e); }
 }
-
-// Finally, start loading the model (same path as before)
-loadVRM('./models/model.vrm');
 
 
 /* =========================================================
@@ -1042,7 +889,8 @@ let animationFrameId;        // To control the animation loop
  * @param {string} newText - The new text to display.
  */
 function updateProgress(newProgress, newText) {
-    targetProgress = Math.max(targetProgress, newProgress);
+    // Clamp progress between the current value and 1 to prevent going backwards or over 100%
+    targetProgress = Math.min(1, Math.max(targetProgress, newProgress));
     progressText.textContent = newText;
 }
 
@@ -1069,11 +917,12 @@ function animateProgressBar() {
 }
 
 /**
- * Overwrites the original loadVRM function to integrate progress updates.
+ * The single, definitive function for loading the VRM model.
+ * It integrates progress updates with the orchestrator.
  * @param {string} url - The URL of the VRM model to load.
  * @returns {Promise<VRM>} A promise that resolves with the loaded VRM object.
  */
-function loadVRM(url) {
+function loadVRMWithProgress(url) {
     return new Promise((resolve, reject) => {
         loader.load(
             url,
@@ -1107,7 +956,9 @@ function loadVRM(url) {
             (progress) => {
                 if (progress.total > 0) {
                     const modelPct = progress.loaded / progress.total;
-                    updateProgress(modelPct * progressWeights.model, `Loading Model... ${Math.round(modelPct * 100)}%`);
+                    // Defensive text update to prevent showing > 100%
+                    const displayPct = Math.round(Math.min(1, modelPct) * 100);
+                    updateProgress(modelPct * progressWeights.model, `Loading Model... ${displayPct}%`);
                 }
             },
             (error) => {
@@ -1119,9 +970,10 @@ function loadVRM(url) {
 }
 
 /**
- * Overwrites the original loadAnimations to integrate progress updates.
+ * The single, definitive function for loading all animations.
+ * It integrates progress updates with the orchestrator.
  */
-async function loadAnimations() {
+async function loadAnimationsWithProgress() {
     if (!currentVrm) return;
 
     mixer = new THREE.AnimationMixer(currentVrm.scene);
@@ -1208,8 +1060,8 @@ async function initializeScene() {
     animateProgressBar();
 
     try {
-        await loadVRM('./models/model.vrm');
-        await loadAnimations();
+        await loadVRMWithProgress('./models/model.vrm');
+        await loadAnimationsWithProgress();
         
         // Final update to ensure the bar reaches 100%
         updateProgress(1, 'Finished!');
@@ -1228,6 +1080,9 @@ async function initializeScene() {
         cancelAnimationFrame(animationFrameId); // Stop the loop on error
     }
 }
+
+// Start the entire application.
+initializeScene();
 
 // Start the entire application.
 initializeScene();
@@ -1251,6 +1106,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
