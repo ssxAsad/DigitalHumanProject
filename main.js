@@ -839,7 +839,7 @@ document.addEventListener('DOMContentLoaded', () => {
            let originalClip = createVRMAnimationClip(thinkingAnimGltf.userData.vrmAnimations[0], currentVrm);
            const fps = 60;
            // Split the clip: 0-25% for intro, 25-100% for loop
-           const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
+           const introEndFrame = Math.floor(originalClip.duration * 0.40 * fps);
            const clipEndFrame = Math.floor(originalClip.duration * fps);
            const introClip = AnimationUtils.subclip(originalClip, 'thinkingIntro', 0, introEndFrame, fps);
            const loopClip = AnimationUtils.subclip(originalClip, 'thinkingLoop', introEndFrame, clipEndFrame, fps);
@@ -916,6 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
