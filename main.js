@@ -814,11 +814,29 @@ async function initializeScene() {
         await loadVRMWithProgress('./models/model.vrm');
         await loadAnimationsWithProgress();
         updateProgress(1, 'Finished!');
+        
         loadingOverlay.classList.add('hidden');
+
+        // This timeout matches the CSS transition duration for the loading overlay.
         setTimeout(() => {
+            // Final cleanup
             loadingOverlay.style.display = 'none';
             cancelAnimationFrame(animationFrameId);
-        }, 750);
+
+            // --- NEW: Play the initial waving animation ---
+            if (wavingAction) {
+                setAnimation(wavingAction);
+                // After the wave finishes, return to idle.
+                setTimeout(() => {
+                    // Only return to idle if another action hasn't interrupted the wave.
+                    if (idleAction && lastPlayedAction === wavingAction) {
+                        setAnimation(idleAction);
+                    }
+                }, wavingDuration * 1000); // wavingDuration is in seconds
+            }
+            // --- END NEW ---
+
+        }, 750); 
     } catch (error) {
         console.error("Initialization failed:", error);
         updateProgress(targetProgress, "Failed to initialize. Please refresh.");
@@ -848,6 +866,7 @@ function setRealViewportHeight() {
    ========================================================= */
 
 }); // end DOMContentLoaded
+
 
 
 
