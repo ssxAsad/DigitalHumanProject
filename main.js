@@ -1053,7 +1053,7 @@ function animateProgressBar() {
     // The multiplier is increased to 0.2 for a faster, more responsive feel.
     const difference = targetProgress - displayedProgress;
     if (Math.abs(difference) > 0.001) {
-        displayedProgress += difference * 0.2; 
+        displayedProgress += difference * 0.2;
         progressBar.style.transform = `scaleX(${displayedProgress})`;
     } else if (targetProgress > displayedProgress) {
         // Snap to the final target value when very close
@@ -1090,10 +1090,14 @@ function loadVRM(url) {
                     vrm.scene.visible = true;
                     if (vrm.expressionManager) vrm.expressionManager.setValue('relaxed', 1);
                     vrm.lookAt.target = camera;
+
+                    // FIX: Added 'lookLeft' and 'lookRight' to the filter.
+                    // This prevents the main render loop from overriding the side-glance expressions.
                     aiManagedExpressions = Array.isArray(vrm.expressionManager?.expressions)
                         ? vrm.expressionManager.expressions.map(e => e.expressionName || e.name)
-                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight'].includes(name))
+                            .filter(name => !['aa', 'ih', 'ou', 'ee', 'oh', 'blink', 'blinkLeft', 'blinkRight', 'lookLeft', 'lookRight'].includes(name))
                         : [];
+
                     setupExpressionBindMaps(vrm);
                     setupBlinking(vrm);
                     setupSideGlances(vrm);
@@ -1122,7 +1126,7 @@ function loadVRM(url) {
  */
 async function loadAnimations() {
     if (!currentVrm) return;
-    
+
     mixer = new THREE.AnimationMixer(currentVrm.scene);
     mixer.addEventListener('finished', (event) => {
         if (event.action === textingIntroAction) setAnimation(textingLoopAction);
@@ -1195,7 +1199,7 @@ async function loadAnimations() {
         textingLoopAction = mixer.clipAction(loopClip);
         textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
     }
-    
+
     scheduleIdle1();
 }
 
@@ -1209,7 +1213,7 @@ async function initializeScene() {
     try {
         await loadVRM('./models/model.vrm');
         await loadAnimations();
-        
+
         // Final update to ensure the bar reaches 100%
         updateProgress(1, 'Finished!');
 
@@ -1227,11 +1231,8 @@ async function initializeScene() {
         cancelAnimationFrame(animationFrameId); // Stop the loop on error
     }
 }
-
-// Start the entire application.
-initializeScene();
 /* =========================================================
-   NEW: MOBILE VIEWPORT HELPER
+   17. NEW: MOBILE VIEWPORT HELPER
    ========================================================= */
 /**
  * Calculates the actual viewport height minus the browser UI and keyboard,
@@ -1248,6 +1249,7 @@ function setRealViewportHeight() {
   END OF SCRIPT
   ====================================================*/
 }); // end DOMContentLoaded
+
 
 
 
