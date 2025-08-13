@@ -112,6 +112,7 @@ body, html {
     outline: none;
     transition: border-color 0.3s;
     -webkit-appearance: none;
+    appearance: none;
     min-width: 50px; /* Prevent input from becoming too small */
 }
 
@@ -240,7 +241,7 @@ body, html {
     .bubble {
         max-width: 90%;
         font-size: 15px;
-        top: calc(15px + env(safe-area-inset-top)); /* Changed to top with safe-area */
+        top: 90px;
     }
 }
 
@@ -270,5 +271,39 @@ body, html {
     .bubble {
         top: calc(15px + env(safe-area-inset-top)); /* Changed to top with safe-area */
     }
+}
+
+/* =======================================
+   7. HEADER BAR STYLES
+   ======================================= */
+#header-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-sizing: border-box; /* Ensures padding is included in the width */
+
+    /* Mimicking .bubble style */
+    padding: 12px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1); /* Changed from full border to border-bottom */
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+
+    /* Adds padding that respects the iPhone's notch/island safe area. */
+    padding-top: calc(12px + env(safe-area-inset-top));
+}
+
+#header-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0; /* Removes default h1 margin */
+    padding-left: 5px; /* Adds a bit of space from the edge */
+    /* .fire-text class from HTML handles the color and gradient */
 }
 
