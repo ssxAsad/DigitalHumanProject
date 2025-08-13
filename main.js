@@ -597,8 +597,12 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         initAudioContext();
 
         hideBubble(textBubble);
-        showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
-        setAnimation(thinkingIntroAction);
+
+        // --- FIX IS HERE: Only show thinking animation/bubble if NOT in text mode ---
+        if (!isTextOutputOn) {
+            showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
+            setAnimation(thinkingIntroAction);
+        }
 
         const isGreeting = isGreetingPrompt(prompt);
 
@@ -642,7 +646,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             }
             const { responseText, expressions } = JSON.parse(data.candidates[0].content.parts[0].text);
 
-            hideBubble(thinkingBubble);
+            if (!isTextOutputOn) {
+                hideBubble(thinkingBubble);
+            }
             if (!responseText) throw new Error("Empty response text from API.");
 
             conversationHistory.push(
@@ -657,7 +663,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         } catch (error) {
             console.error("--- Error in Chat Flow ---", error);
-            hideBubble(thinkingBubble);
+            if (!isTextOutputOn) {
+                hideBubble(thinkingBubble);
+            }
             showBubble(textBubble, `<span class="fire-text">${error.message}</span>`, 6000);
         } finally {
             isAwaitingResponse = false;
@@ -911,6 +919,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
