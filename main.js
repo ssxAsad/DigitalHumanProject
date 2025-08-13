@@ -476,110 +476,110 @@ document.addEventListener('DOMContentLoaded', () => {
 /* =========================================================
    12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback)
    ========================================================= */
-function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
-    return new Promise((resolve) => {
-        const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
-        const primaryEmotionName = primaryExpression.name;
-        const primaryEmotionWeight = primaryExpression.weight ?? 1.0;
+    function playResponseAndExpressions(responseText, expressions) {
+        return new Promise((resolve) => {
+            const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
 
-        if (isTextOutputOn) {
-            const textDuration = Math.max(4000, responseText.length * 80);
-            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
-            activeEmotionName = primaryEmotionName;
-            activeEmotionWeight = primaryEmotionWeight;
-            isExpressionActive = true;
-            setTimeout(() => {
+            if (isTextOutputOn) {
+                const textDuration = Math.max(4000, responseText.length * 80);
+                showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
+                isExpressionActive = true;
+                activeEmotionName = primaryExpression.name;
+                activeEmotionWeight = primaryExpression.weight ?? 1.0;
+                setTimeout(() => {
+                    activeEmotionName = 'relaxed';
+                    activeEmotionWeight = 1.0;
+                    isExpressionActive = false;
+                }, textDuration - 500);
+                resolve();
+                return;
+            }
+
+            // This function splits long text into manageable chunks for the TTS API
+            function splitIntoChunks(text) {
+                const rough = text.match(/[^.!?]+[.!?]?/g) || [text];
+                const out = [];
+                rough.forEach(sentence => {
+                    const trimmed = sentence.trim();
+                    if (!trimmed) return;
+                    if (trimmed.length <= 140) {
+                        out.push(trimmed);
+                    } else {
+                        let s = trimmed;
+                        while (s.length > 0) {
+                            let piece = s.slice(0, 140);
+                            const lastSpace = piece.lastIndexOf(' ');
+                            if (lastSpace > 60) piece = piece.slice(0, lastSpace);
+                            out.push(piece.trim());
+                            s = s.slice(piece.length).trim();
+                        }
+                    }
+                });
+                return out;
+            }
+
+            const endPlayback = () => {
+                isTalking = false;
                 activeEmotionName = 'relaxed';
                 activeEmotionWeight = 1.0;
-                isExpressionActive = false;
-            }, textDuration - 500);
-            resolve();
-            return;
-        }
+                resolve();
+            };
 
-        // --- Start of new streaming logic ---
-        isTalking = true;
-        activeEmotionName = primaryEmotionName;
-        activeEmotionWeight = primaryEmotionWeight;
-        audioPlaybackStartTime = 0; // Reset start time
-        audioQueue = [];
-        visemeQueue = [];
+            (async () => {
+                try {
+                    isTalking = true;
+                    activeEmotionName = primaryExpression.name;
+                    activeEmotionWeight = primaryExpression.weight ?? 1.0;
 
-        if (isGreeting && wavingAction) {
-            setAnimation(wavingAction);
-        } else {
-            setAnimation(talkingAction);
-        }
+                    initAudioContext();
+                    const chunks = splitIntoChunks(responseText);
+                    const audioBuffers = [];
 
-        fetch("/.netlify/functions/elevenlabs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                voiceId,
-                payload: {
-                    text: responseText,
-                    model_id: "eleven_multilingual_v2", // Example model
-                    voice_settings: { stability: 0.5, similarity_boost: 0.8 },
-                },
-                output_format: "pcm_16000", // Requesting raw PCM
-                with_visemes: true
-            })
-        })
-        .then(response => {
-            if (!response.ok) throw new Error(`TTS stream failed: ${response.status}`);
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+                    for (const chunkText of chunks) {
+                        const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                voiceId,
+                                payload: { text: chunkText }
+                            })
+                        });
 
-            function push() {
-                reader.read().then(({ done, value }) => {
-                    if (done) {
-                        // Add a delay before resolving to let the last audio chunk play out
-                        const finalDelay = (audioQueue.length > 0) ? 1000 : 100; // rough estimate
-                        setTimeout(() => {
-                            isTalking = false;
-                            activeEmotionName = 'relaxed';
-                            activeEmotionWeight = 1.0;
-                            if (lastPlayedAction === talkingAction) {
-                                setAnimation(idleAction);
-                            }
-                            resolve();
-                        }, finalDelay);
+                        if (!ttsResponse.ok) throw new Error(await ttsResponse.text().catch(()=>'TTS Error'));
+                        
+                        const audioData = await ttsResponse.arrayBuffer();
+                        const decodedBuffer = await audioContext.decodeAudioData(audioData);
+                        audioBuffers.push(decodedBuffer);
+                    }
+
+                    if (audioBuffers.length === 0) {
+                        endPlayback();
                         return;
                     }
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    // Handle multiple JSON objects in a single chunk
-                    chunk.split('\n').filter(line => line.trim()).forEach(line => {
-                         try {
-                            const data = JSON.parse(line);
-                            if (data.audio) {
-                                audioQueue.push(base64ToFloat32Array(data.audio));
-                                if (!isPlayingFromQueue) processAudioQueue();
-                            }
-                            if (data.visemes) {
-                                visemeQueue.push(...data.visemes);
-                            }
-                         } catch (e) {
-                            // Incomplete JSON object, wait for next chunk
-                         }
-                    });
+                    let currentBufferIndex = 0;
+                    function playNextBuffer() {
+                        if (currentBufferIndex >= audioBuffers.length) {
+                            endPlayback();
+                            return;
+                        }
+                        const buffer = audioBuffers[currentBufferIndex];
+                        const source = audioContext.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(audioContext.destination);
+                        source.onended = playNextBuffer;
+                        source.start();
+                        currentBufferIndex++;
+                    }
+                    playNextBuffer();
 
-                    push();
-                }).catch(err => {
-                    console.error("Error reading stream:", err);
-                    isTalking = false;
-                    resolve();
-                });
-            }
-            push();
-        })
-        .catch(err => {
-            console.error("Error playing response:", err);
-            isTalking = false;
-            resolve();
+                } catch (err) {
+                    console.error("Error playing response:", err);
+                    endPlayback(); // This ensures talking state is reset on error
+                }
+            })();
         });
-    });
-}
+    }
 
 /* =========================================================
    13. CHAT / API FLOW (Gemini Online Only)
@@ -597,13 +597,11 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         initAudioContext();
 
         hideBubble(textBubble);
+        showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
 
         if (!isTextOutputOn) {
-            showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
             setAnimation(thinkingIntroAction);
         }
-
-        const isGreeting = isGreetingPrompt(prompt);
 
         try {
             const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', ');
@@ -636,7 +634,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 body: JSON.stringify(requestBody)
             });
 
-            // --- FIX IS HERE: More robust error handling for the API response ---
             if (!response.ok) {
                 let errorDetails = `Gemini API request failed with status ${response.status}`;
                 try {
@@ -649,15 +646,13 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             const data = await response.json();
 
             if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                // Log the actual problematic response for easier debugging
                 console.error("--- Invalid Gemini Response Received ---", data);
                 throw new Error("Invalid response structure from Gemini API.");
             }
             const { responseText, expressions } = JSON.parse(data.candidates[0].content.parts[0].text);
-
-            if (!isTextOutputOn) {
-                hideBubble(thinkingBubble);
-            }
+            
+            hideBubble(thinkingBubble);
+            
             if (!responseText) throw new Error("Empty response text from API.");
 
             conversationHistory.push(
@@ -668,22 +663,37 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 conversationHistory.splice(0, 2);
             }
 
-            await playResponseAndExpressions(responseText, expressions || [], isGreeting);
+            // --- ANIMATION LOGIC IS NOW CORRECTLY HANDLED HERE ---
+            const isGreeting = isGreetingPrompt(prompt);
+            if (!isTextOutputOn) {
+                if (isGreeting && wavingAction) {
+                    setAnimation(wavingAction);
+                } else {
+                    setAnimation(talkingAction);
+                }
+            }
+
+            await playResponseAndExpressions(responseText, expressions);
+
+            // After speech or text display is finished, return to a neutral animation
+            if (!isTextOutputOn) {
+                setAnimation(idleAction);
+            }
 
         } catch (error) {
             console.error("--- Error in Chat Flow ---", error);
-            if (!isTextOutputOn) {
-                hideBubble(thinkingBubble);
-            }
-            // Display a more user-friendly error message
+            hideBubble(thinkingBubble);
             showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
+            // Ensure we return to idle on error as well
+            if (!isTextOutputOn) {
+                 setAnimation(idleAction);
+            }
         } finally {
             isAwaitingResponse = false;
             chatInput.disabled = false;
             sendButton.disabled = false;
         }
     }
-
 /* =========================================================
    14. UI EVENT BINDINGS (buttons, toggles)
    ========================================================= */
@@ -929,6 +939,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
