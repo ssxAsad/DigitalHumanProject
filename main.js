@@ -474,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 /* =========================================================
-   12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback) — UPDATED WITH DEBUG
+   12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback) — UPDATED
    ========================================================= */
 function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
     return new Promise((resolve) => {
@@ -506,6 +506,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         console.log("🔊 Sending text to ElevenLabs for TTS:", responseText);
 
+        // --- THE FIX IS IN THE 'payload' OBJECT BELOW ---
         fetch("/.netlify/functions/elevenlabs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -515,8 +516,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     text: responseText,
                     model_id: "eleven_multilingual_v2",
                     voice_settings: { stability: 0.5, similarity_boost: 0.8 },
-                    // Ensure visemes are requested from serverless function
-                    with_visemes: true
+                    // FIX: This is the correct way to request audio and visemes (lip-sync data).
+                    // The API needs this specific format name.
+                    output_format: "pcm_16000_json_with_visemes"
                 }
             })
         })
@@ -538,11 +540,12 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     }
 
                     const chunk = decoder.decode(value, { stream: true });
+                    // The stream sends multiple JSON objects, often incomplete, separated by newlines.
+                    // We process each complete line.
                     chunk.split('\n').filter(line => line.trim()).forEach(line => {
                         try {
                             const data = JSON.parse(line);
 
-                            // --- Debug incoming audio ---
                             if (data.audio) {
                                 console.log(`🎵 Audio chunk received, base64 length: ${data.audio.length}`);
                                 audioQueue.push(base64ToFloat32Array(data.audio));
@@ -557,14 +560,14 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                                     processAudioQueue();
                                 }
                             }
-
-                            // --- Debug incoming visemes ---
+                            
                             if (data.visemes) {
                                 console.log("👄 Visemes received:", data.visemes);
                                 visemeQueue.push(...data.visemes);
                             }
                         } catch (e) {
-                            // Incomplete JSON — wait for next chunk
+                            // This is expected if a JSON object is split across chunks.
+                            // We simply wait for the next chunk to complete it.
                         }
                     });
 
@@ -584,7 +587,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         });
     });
 }
-
 
 /* =========================================================
    13. CHAT / API FLOW (Gemini Online Only) — UPDATED
@@ -952,6 +954,7 @@ async function handleSendMessage() {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
