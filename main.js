@@ -476,118 +476,110 @@ document.addEventListener('DOMContentLoaded', () => {
 /* =========================================================
    12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback)
    ========================================================= */
-    function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
-        return new Promise((resolve) => {
-            const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
+function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
+    return new Promise((resolve) => {
+        const primaryExpression = expressions?.[0] || { name: 'relaxed', weight: 1.0 };
+        const primaryEmotionName = primaryExpression.name;
+        const primaryEmotionWeight = primaryExpression.weight ?? 1.0;
 
-            if (isTextOutputOn) {
-                const textDuration = Math.max(4000, responseText.length * 80);
-                showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
-                isExpressionActive = true;
-                activeEmotionName = primaryExpression.name;
-                activeEmotionWeight = primaryExpression.weight ?? 1.0;
-                setTimeout(() => {
-                    activeEmotionName = 'relaxed';
-                    activeEmotionWeight = 1.0;
-                    isExpressionActive = false;
-                }, textDuration - 500);
-                resolve();
-                return;
-            }
-
-            function splitIntoChunks(text) {
-                const rough = text.match(/[^.!?]+[.!?]?/g) || [text];
-                const out = [];
-                rough.forEach(sentence => {
-                    const trimmed = sentence.trim();
-                    if (!trimmed) return;
-                    if (trimmed.length <= 140) {
-                        out.push(trimmed);
-                    } else {
-                        let s = trimmed;
-                        while (s.length > 0) {
-                            let piece = s.slice(0, 140);
-                            const lastSpace = piece.lastIndexOf(' ');
-                            if (lastSpace > 60) piece = piece.slice(0, lastSpace);
-                            out.push(piece.trim());
-                            s = s.slice(piece.length).trim();
-                        }
-                    }
-                });
-                return out;
-            }
-
-            const endPlayback = () => {
-                isTalking = false;
+        if (isTextOutputOn) {
+            const textDuration = Math.max(4000, responseText.length * 80);
+            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
+            activeEmotionName = primaryEmotionName;
+            activeEmotionWeight = primaryEmotionWeight;
+            isExpressionActive = true;
+            setTimeout(() => {
                 activeEmotionName = 'relaxed';
                 activeEmotionWeight = 1.0;
-                if(lastPlayedAction === talkingAction) {
-                    setAnimation(idleAction);
-                }
-                resolve();
-            };
+                isExpressionActive = false;
+            }, textDuration - 500);
+            resolve();
+            return;
+        }
 
-            (async () => {
-                try {
-                    isTalking = true;
-                    activeEmotionName = primaryExpression.name;
-                    activeEmotionWeight = primaryExpression.weight ?? 1.0;
+        // --- Start of new streaming logic ---
+        isTalking = true;
+        activeEmotionName = primaryEmotionName;
+        activeEmotionWeight = primaryEmotionWeight;
+        audioPlaybackStartTime = 0; // Reset start time
+        audioQueue = [];
+        visemeQueue = [];
 
-                    initAudioContext();
-                    const chunks = splitIntoChunks(responseText);
-                    const audioBuffers = [];
+        if (isGreeting && wavingAction) {
+            setAnimation(wavingAction);
+        } else {
+            setAnimation(talkingAction);
+        }
 
-                    for (const chunkText of chunks) {
-                        const ttsResponse = await fetch("/.netlify/functions/elevenlabs", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                voiceId,
-                                payload: { text: chunkText }
-                            })
-                        });
+        fetch("/.netlify/functions/elevenlabs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                voiceId,
+                payload: {
+                    text: responseText,
+                    model_id: "eleven_multilingual_v2", // Example model
+                    voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+                },
+                output_format: "pcm_16000", // Requesting raw PCM
+                with_visemes: true
+            })
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`TTS stream failed: ${response.status}`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
 
-                        if (!ttsResponse.ok) throw new Error(await ttsResponse.text().catch(()=>'TTS Error'));
-                        
-                        const audioData = await ttsResponse.arrayBuffer();
-                        const decodedBuffer = await audioContext.decodeAudioData(audioData);
-                        audioBuffers.push(decodedBuffer);
-                    }
-
-                    if (audioBuffers.length === 0) {
-                        endPlayback();
+            function push() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // Add a delay before resolving to let the last audio chunk play out
+                        const finalDelay = (audioQueue.length > 0) ? 1000 : 100; // rough estimate
+                        setTimeout(() => {
+                            isTalking = false;
+                            activeEmotionName = 'relaxed';
+                            activeEmotionWeight = 1.0;
+                            if (lastPlayedAction === talkingAction) {
+                                setAnimation(idleAction);
+                            }
+                            resolve();
+                        }, finalDelay);
                         return;
                     }
 
-                    if (isGreeting && wavingAction) {
-                        setAnimation(wavingAction);
-                    } else {
-                        setAnimation(talkingAction);
-                    }
+                    const chunk = decoder.decode(value, { stream: true });
+                    // Handle multiple JSON objects in a single chunk
+                    chunk.split('\n').filter(line => line.trim()).forEach(line => {
+                         try {
+                            const data = JSON.parse(line);
+                            if (data.audio) {
+                                audioQueue.push(base64ToFloat32Array(data.audio));
+                                if (!isPlayingFromQueue) processAudioQueue();
+                            }
+                            if (data.visemes) {
+                                visemeQueue.push(...data.visemes);
+                            }
+                         } catch (e) {
+                            // Incomplete JSON object, wait for next chunk
+                         }
+                    });
 
-                    let currentBufferIndex = 0;
-                    function playNextBuffer() {
-                        if (currentBufferIndex >= audioBuffers.length) {
-                            endPlayback();
-                            return;
-                        }
-                        const buffer = audioBuffers[currentBufferIndex];
-                        const source = audioContext.createBufferSource();
-                        source.buffer = buffer;
-                        source.connect(audioContext.destination);
-                        source.onended = playNextBuffer;
-                        source.start();
-                        currentBufferIndex++;
-                    }
-                    playNextBuffer();
-
-                } catch (err) {
-                    console.error("Error playing response:", err);
-                    endPlayback();
-                }
-            })();
+                    push();
+                }).catch(err => {
+                    console.error("Error reading stream:", err);
+                    isTalking = false;
+                    resolve();
+                });
+            }
+            push();
+        })
+        .catch(err => {
+            console.error("Error playing response:", err);
+            isTalking = false;
+            resolve();
         });
-    }
+    });
+}
 
 /* =========================================================
    13. CHAT / API FLOW (Gemini Online Only)
@@ -773,12 +765,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         mixer = new THREE.AnimationMixer(currentVrm.scene);
         
+        // --- THIS BLOCK IS NOW FIXED ---
         mixer.addEventListener('finished', (event) => {
             const finishedAction = event.action;
             if (finishedAction === textingIntroAction) {
-               thinkingLoopAction.reset().play();
-               thinkingIntroAction.crossFadeTo(thinkingLoopAction, 0.35, true);
-               lastPlayedAction = thinkingLoopAction; // Keep the state updated
+               textingLoopAction.reset().play();
+               textingIntroAction.crossFadeTo(textingLoopAction, 0.35, true);
+               lastPlayedAction = textingLoopAction; // Keep the state updated
             }
             else if (finishedAction === thinkingIntroAction) {
                setAnimation(thinkingLoopAction);
@@ -918,6 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
