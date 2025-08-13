@@ -39,19 +39,21 @@ body, html {
 .bubble {
     display: none;
     position: absolute;
-    top: 20px; /* Changed from bottom */
+    /* CHANGED: This is now the "hidden" starting position for the animation. */
+    top: 20px; 
     left: 50%;
     transform: translateX(-50%);
     padding: 12px 20px;
     border-radius: 20px;
-    height: fit-content; /* Ensures bubble wraps its content */
+    height: fit-content;
     max-width: 320px;
     font-size: 16px;
-    font-weight: 700; /* Made text bold */
+    font-weight: 700;
     z-index: 10;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.4s ease-in-out, top 0.4s ease-in-out; /* Updated transition */
+    /* CHANGED: The transition now correctly targets the 'top' property. */
+    transition: opacity 0.4s ease-in-out, top 0.4s ease-in-out;
     text-align: center;
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
