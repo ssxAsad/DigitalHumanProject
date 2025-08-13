@@ -474,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 /* =========================================================
-   12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback)
+   12. PLAY RESPONSE & EXPRESSIONS (chunked TTS playback) — UPDATED WITH DEBUG
    ========================================================= */
 function playResponseAndExpressions(responseText, expressions, isGreeting = false) {
     return new Promise((resolve) => {
@@ -504,6 +504,8 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         audioQueue = [];
         visemeQueue = [];
 
+        console.log("🔊 Sending text to ElevenLabs for TTS:", responseText);
+
         fetch("/.netlify/functions/elevenlabs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -513,6 +515,8 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                     text: responseText,
                     model_id: "eleven_multilingual_v2",
                     voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+                    // Ensure visemes are requested from serverless function
+                    with_visemes: true
                 }
             })
         })
@@ -524,6 +528,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             function push() {
                 reader.read().then(({ done, value }) => {
                     if (done) {
+                        console.log("✅ ElevenLabs stream ended.");
                         const finalDelay = (audioQueue.length > 0) ? 1000 : 100;
                         setTimeout(() => {
                             isTalking = false;
@@ -534,11 +539,15 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
                     const chunk = decoder.decode(value, { stream: true });
                     chunk.split('\n').filter(line => line.trim()).forEach(line => {
-                         try {
+                        try {
                             const data = JSON.parse(line);
+
+                            // --- Debug incoming audio ---
                             if (data.audio) {
+                                console.log(`🎵 Audio chunk received, base64 length: ${data.audio.length}`);
                                 audioQueue.push(base64ToFloat32Array(data.audio));
-                                // --- FIX IS HERE: Start playback and animation on FIRST audio chunk ---
+
+                                // Start playback & animation on first audio chunk
                                 if (!isPlayingFromQueue) {
                                     if (isGreeting && wavingAction) {
                                         setAnimation(wavingAction);
@@ -548,16 +557,20 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                                     processAudioQueue();
                                 }
                             }
+
+                            // --- Debug incoming visemes ---
                             if (data.visemes) {
+                                console.log("👄 Visemes received:", data.visemes);
                                 visemeQueue.push(...data.visemes);
                             }
-                         } catch (e) {
-                            // Incomplete JSON, wait for the next chunk
-                         }
+                        } catch (e) {
+                            // Incomplete JSON — wait for next chunk
+                        }
                     });
+
                     push();
                 }).catch(err => {
-                    console.error("Error reading stream:", err);
+                    console.error("❌ Error reading ElevenLabs stream:", err);
                     isTalking = false;
                     resolve();
                 });
@@ -565,118 +578,134 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             push();
         })
         .catch(err => {
-            console.error("Error playing response:", err);
+            console.error("❌ Error playing response:", err);
             isTalking = false;
             resolve();
         });
     });
 }
 
+
 /* =========================================================
-   13. CHAT / API FLOW (Gemini Online Only)
+   13. CHAT / API FLOW (Gemini Online Only) — UPDATED
    ========================================================= */
-    async function handleSendMessage() {
-        const prompt = chatInput.value.trim();
-        if (!prompt || !currentVrm || isAwaitingResponse) return;
+async function handleSendMessage() {
+    const prompt = chatInput.value.trim();
+    if (!prompt || !currentVrm || isAwaitingResponse) return;
 
-        chatInput.value = '';
+    chatInput.value = '';
 
-        isAwaitingResponse = true;
-        chatInput.disabled = true;
-        sendButton.disabled = true;
+    isAwaitingResponse = true;
+    chatInput.disabled = true;
+    sendButton.disabled = true;
 
-        initAudioContext();
+    initAudioContext();
 
-        hideBubble(textBubble);
-        showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
+    hideBubble(textBubble);
+    showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
 
-        if (!isTextOutputOn) {
-            setAnimation(thinkingIntroAction);
-        }
-
-        try {
-            const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', ');
-            const systemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive.
-            Respond in a natural, human-like way. NEVER mention you are an AI.
-            IMPORTANT: Your entire response MUST be a single, valid JSON object. Do not include any text before or after the JSON.
-            The JSON object must have this exact structure:
-            {
-              "responseText": "The text you want to say out loud.",
-              "expressions": [ { "name": "expression_name", "weight": 0.8 } ]
-            }
-            - "responseText": The clean, natural language response.
-            - "expressions": An array of facial expressions. Only the FIRST expression will be used and it will last for the entire duration of the response.
-              - "name": Choose the MOST appropriate emotion from this list: [${expressionList}].
-              - "weight": How strong the expression is (from 0.1 to 1.0).`;
-
-            const requestBody = {
-                contents: [
-                    { role: 'user', parts: [{ text: systemPrompt }] },
-                    { role: 'model', parts: [{ text: "Understood." }] },
-                    ...conversationHistory,
-                    { role: "user", parts: [{ text: prompt }] }
-                ],
-                generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
-            };
-
-            const response = await fetch("/.netlify/functions/gemini", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestBody)
-            });
-
-            if (!response.ok) {
-                let errorDetails = `Gemini API request failed with status ${response.status}`;
-                try {
-                    const errorData = await response.json();
-                    errorDetails += `: ${JSON.stringify(errorData.error?.message || errorData)}`;
-                } catch (e) { /* Ignore if error response is not JSON */ }
-                throw new Error(errorDetails);
-            }
-
-            const data = await response.json();
-
-            if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                console.error("--- Invalid Gemini Response Received ---", data);
-                throw new Error("Invalid response structure from Gemini API.");
-            }
-            const { responseText, expressions } = JSON.parse(data.candidates[0].content.parts[0].text);
-            
-            hideBubble(thinkingBubble);
-            
-            if (!responseText) throw new Error("Empty response text from API.");
-
-            conversationHistory.push(
-                { role: "user", parts: [{ text: prompt }] },
-                { role: "model", parts: [{ text: JSON.stringify({ responseText, expressions }) }] }
-            );
-            if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
-                conversationHistory.splice(0, 2);
-            }
-
-            // --- FIX IS HERE: Animation is no longer set here. ---
-            // It's now handled by the playback function for perfect sync.
-            const isGreeting = isGreetingPrompt(prompt);
-            await playResponseAndExpressions(responseText, expressions, isGreeting);
-
-            // Once speech is finished, return to idle.
-            if (!isTextOutputOn && lastPlayedAction !== idleAction) {
-                setAnimation(idleAction);
-            }
-
-        } catch (error) {
-            console.error("--- Error in Chat Flow ---", error);
-            hideBubble(thinkingBubble);
-            showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
-            if (!isTextOutputOn) {
-                 setAnimation(idleAction);
-            }
-        } finally {
-            isAwaitingResponse = false;
-            chatInput.disabled = false;
-            sendButton.disabled = false;
-        }
+    if (!isTextOutputOn) {
+        setAnimation(thinkingIntroAction);
     }
+
+    try {
+        const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', ');
+        const systemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive.
+        Respond in a natural, human-like way. NEVER mention you are an AI.
+        IMPORTANT: Your entire response MUST be a single, valid JSON object. Do not include any text before or after the JSON.
+        The JSON object must have this exact structure:
+        {
+          "responseText": "The text you want to say out loud.",
+          "expressions": [ { "name": "expression_name", "weight": 0.8 } ]
+        }
+        - "responseText": The clean, natural language response.
+        - "expressions": An array of facial expressions. Only the FIRST expression will be used and it will last for the entire duration of the response.
+          - "name": Choose the MOST appropriate emotion from this list: [${expressionList}].
+          - "weight": How strong the expression is (from 0.1 to 1.0).`;
+
+        const requestBody = {
+            contents: [
+                { role: 'user', parts: [{ text: systemPrompt }] },
+                { role: 'model', parts: [{ text: "Understood." }] },
+                ...conversationHistory,
+                { role: "user", parts: [{ text: prompt }] }
+            ],
+            generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
+        };
+
+        const response = await fetch("/.netlify/functions/gemini", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            let errorDetails = `Gemini API request failed with status ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorDetails += `: ${JSON.stringify(errorData.error?.message || errorData)}`;
+            } catch (e) { /* Ignore if error response is not JSON */ }
+            throw new Error(errorDetails);
+        }
+
+        const data = await response.json();
+
+        // --- DEBUG: Log raw Gemini output ---
+        let rawGeminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        console.log("RAW Gemini output:", rawGeminiText);
+
+        // Try to find JSON inside the Gemini output
+        let parsed;
+        try {
+            const jsonMatch = rawGeminiText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("No JSON object found in Gemini output.");
+            parsed = JSON.parse(jsonMatch[0]);
+        } catch (err) {
+            console.error("Gemini JSON parse error:", err);
+            throw new Error("Invalid JSON from Gemini API.");
+        }
+
+        const responseText = parsed?.responseText || "";
+        const expressions = Array.isArray(parsed?.expressions) ? parsed.expressions : [];
+
+        hideBubble(thinkingBubble);
+
+        if (!responseText.trim()) throw new Error("Empty response text from API.");
+
+        conversationHistory.push(
+            { role: "user", parts: [{ text: prompt }] },
+            { role: "model", parts: [{ text: JSON.stringify({ responseText, expressions }) }] }
+        );
+        if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
+            conversationHistory.splice(0, 2);
+        }
+
+        const isGreeting = isGreetingPrompt(prompt);
+
+        // --- DEBUG: Log expressions before playback ---
+        console.log("Expressions for this response:", expressions);
+
+        await playResponseAndExpressions(responseText, expressions, isGreeting);
+
+        // Once speech is finished, return to idle.
+        if (!isTextOutputOn && lastPlayedAction !== idleAction) {
+            setAnimation(idleAction);
+        }
+
+    } catch (error) {
+        console.error("--- Error in Chat Flow ---", error);
+        hideBubble(thinkingBubble);
+        showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
+        if (!isTextOutputOn) {
+             setAnimation(idleAction);
+        }
+    } finally {
+        isAwaitingResponse = false;
+        chatInput.disabled = false;
+        sendButton.disabled = false;
+    }
+}
+
    
 /* =========================================================
    14. UI EVENT BINDINGS (buttons, toggles)
@@ -923,6 +952,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
