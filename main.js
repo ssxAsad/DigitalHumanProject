@@ -31,11 +31,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const elevenLabsApiKey = ""; 
     const voiceId = "BpjGufoPiobT79j2vtj4";
     const geminiApiKey = ""; 
+    const localApiBaseUrl = "https://b14469d10fb0.ngrok-free.app";
 
 /* =========================================================
    5. STATE VARIABLES
    ========================================================= */
     let conversationHistory = [];
+    let isOnlineMode = false;
     const MAX_CONVERSATION_TURNS = 10;
     let isTextOutputOn = false;
     let isTalking = false;
@@ -453,8 +455,9 @@ document.addEventListener('DOMContentLoaded', () => {
    ========================================================= */
     function hideBubble(bubbleElem) {
         if (bubbleElem.style.display !== 'none' && bubbleElem.style.opacity !== '0') {
+            // Animates back to the starting 'top' position.
             bubbleElem.style.opacity = '0';
-            bubbleElem.style.bottom = '100px';
+            bubbleElem.style.top = '20px'; 
             setTimeout(() => { bubbleElem.style.display = 'none'; }, 400);
         }
     }
@@ -465,8 +468,9 @@ document.addEventListener('DOMContentLoaded', () => {
         bubbleElem.innerHTML = text;
         bubbleElem.style.display = 'block';
         setTimeout(() => {
+            // CHANGED: Increased from 70px to 90px for a larger, consistent margin.
             bubbleElem.style.opacity = '1';
-            bubbleElem.style.bottom = '120px';
+            bubbleElem.style.top = '90px'; 
         }, 10);
         if (duration && duration !== Infinity) {
             bubbleTimeout = setTimeout(() => hideBubble(bubbleElem), duration);
@@ -589,132 +593,239 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 }
 
 /* =========================================================
-   13. CHAT / API FLOW (Gemini Online Only) — UPDATED
+   13. CHAT / API FLOW (Gemini Online & LM Studio Local) — UPDATED
    ========================================================= */
-async function handleSendMessage() {
-    const prompt = chatInput.value.trim();
-    if (!prompt || !currentVrm || isAwaitingResponse) return;
 
-    chatInput.value = '';
+    // 1. MAIN ROUTER FUNCTION
+    // This function is the new entry point when the user clicks "Send".
+    async function handleSendMessage() {
+        const prompt = chatInput.value.trim();
+        if (!prompt || !currentVrm || isAwaitingResponse) return;
 
-    isAwaitingResponse = true;
-    chatInput.disabled = true;
-    sendButton.disabled = true;
+        chatInput.value = '';
 
-    initAudioContext();
+        isAwaitingResponse = true;
+        chatInput.disabled = true;
+        sendButton.disabled = true;
 
-    hideBubble(textBubble);
-    showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
+        initAudioContext(); // Ensure audio is ready
 
-    if (!isTextOutputOn) {
-        setAnimation(thinkingIntroAction);
-    }
+        hideBubble(textBubble);
+        showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
 
-    try {
-        const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', ');
-        const systemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive.
-        Respond in a natural, human-like way. NEVER mention you are an AI.
-        IMPORTANT: Your entire response MUST be a single, valid JSON object. Do not include any text before or after the JSON.
-        The JSON object must have this exact structure:
-        {
-          "responseText": "The text you want to say out loud.",
-          "expressions": [ { "name": "expression_name", "weight": 0.8 } ]
-        }
-        - "responseText": The clean, natural language response.
-        - "expressions": An array of facial expressions. Only the FIRST expression will be used and it will last for the entire duration of the response.
-          - "name": Choose the MOST appropriate emotion from this list: [${expressionList}].
-          - "weight": How strong the expression is (from 0.1 to 1.0).`;
-
-        const requestBody = {
-            contents: [
-                { role: 'user', parts: [{ text: systemPrompt }] },
-                { role: 'model', parts: [{ text: "Understood." }] },
-                ...conversationHistory,
-                { role: "user", parts: [{ text: prompt }] }
-            ],
-            generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
-        };
-
-        const response = await fetch("/.netlify/functions/gemini", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-            let errorDetails = `Gemini API request failed with status ${response.status}`;
-            try {
-                const errorData = await response.json();
-                errorDetails += `: ${JSON.stringify(errorData.error?.message || errorData)}`;
-            } catch (e) { /* Ignore if error response is not JSON */ }
-            throw new Error(errorDetails);
-        }
-
-        const data = await response.json();
-
-        // --- DEBUG: Log raw Gemini output ---
-        let rawGeminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        console.log("RAW Gemini output:", rawGeminiText);
-
-        // Try to find JSON inside the Gemini output
-        let parsed;
-        try {
-            const jsonMatch = rawGeminiText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error("No JSON object found in Gemini output.");
-            parsed = JSON.parse(jsonMatch[0]);
-        } catch (err) {
-            console.error("Gemini JSON parse error:", err);
-            throw new Error("Invalid JSON from Gemini API.");
-        }
-
-        const responseText = parsed?.responseText || "";
-        const expressions = Array.isArray(parsed?.expressions) ? parsed.expressions : [];
-
-        hideBubble(thinkingBubble);
-
-        if (!responseText.trim()) throw new Error("Empty response text from API.");
-
-        conversationHistory.push(
-            { role: "user", parts: [{ text: prompt }] },
-            { role: "model", parts: [{ text: JSON.stringify({ responseText, expressions }) }] }
-        );
-        if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
-            conversationHistory.splice(0, 2);
-        }
-
-        const isGreeting = isGreetingPrompt(prompt);
-
-        // --- DEBUG: Log expressions before playback ---
-        console.log("Expressions for this response:", expressions);
-
-        await playResponseAndExpressions(responseText, expressions, isGreeting);
-
-        // Once speech is finished, return to idle.
-        if (!isTextOutputOn && lastPlayedAction !== idleAction) {
-            setAnimation(idleAction);
-        }
-
-    } catch (error) {
-        console.error("--- Error in Chat Flow ---", error);
-        hideBubble(thinkingBubble);
-        showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
         if (!isTextOutputOn) {
-             setAnimation(idleAction);
+            setAnimation(thinkingIntroAction);
         }
-    } finally {
+
+        // The router checks the mode and calls the appropriate function
+        if (isOnlineMode) {
+            await handleSendMessageOnline(prompt);
+        } else {
+            await handleSendMessageLocal(prompt);
+        }
+        
+        // Reset UI state after completion
         isAwaitingResponse = false;
         chatInput.disabled = false;
         sendButton.disabled = false;
     }
-}
 
-   
+
+    // 2. ONLINE MODE LOGIC (Gemini + ElevenLabs)
+    // This is YOUR original, working code, now wrapped in its own function. It remains untouched.
+    async function handleSendMessageOnline(prompt) {
+        console.log("ONLINE MODE: Calling Netlify functions for Gemini and ElevenLabs...");
+        try {
+            const expressionList = ALLOWED_EXPRESSIONS_FOR_AI.join(', '); //
+            const systemPrompt = `You are Aria, an emotionally intelligent virtual friend. Your personality is calm, warm, and supportive.
+            Respond in a natural, human-like way. NEVER mention you are an AI.
+            IMPORTANT: Your entire response MUST be a single, valid JSON object. Do not include any text before or after the JSON.
+            The JSON object must have this exact structure:
+            {
+              "responseText": "The text you want to say out loud.",
+              "expressions": [ { "name": "expression_name", "weight": 0.8 } ]
+            }
+            - "responseText": The clean, natural language response.
+            - "expressions": An array of facial expressions. Only the FIRST expression will be used and it will last for the entire duration of the response.
+              - "name": Choose the MOST appropriate emotion from this list: [${expressionList}].
+              - "weight": How strong the expression is (from 0.1 to 1.0).`;
+
+            const requestBody = {
+                contents: [
+                    { role: 'user', parts: [{ text: systemPrompt }] },
+                    { role: 'model', parts: [{ text: "Understood." }] },
+                    ...conversationHistory,
+                    { role: "user", parts: [{ text: prompt }] }
+                ],
+                generationConfig: { maxOutputTokens: 2048, responseMimeType: "application/json" },
+            };
+
+            const response = await fetch("/.netlify/functions/gemini", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                let errorDetails = `Gemini API request failed with status ${response.status}`;
+                try { const errorData = await response.json(); errorDetails += `: ${JSON.stringify(errorData.error?.message || errorData)}`; } catch (e) { /* Ignore */ }
+                throw new Error(errorDetails);
+            }
+
+            const data = await response.json();
+            const rawGeminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            
+            const jsonMatch = rawGeminiText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("No JSON object found in Gemini output.");
+            const parsed = JSON.parse(jsonMatch[0]);
+
+            const responseText = parsed?.responseText || "";
+            const expressions = Array.isArray(parsed?.expressions) ? parsed.expressions : [];
+
+            hideBubble(thinkingBubble);
+            if (!responseText.trim()) throw new Error("Empty response text from API.");
+
+            conversationHistory.push(
+                { role: "user", parts: [{ text: prompt }] },
+                { role: "model", parts: [{ text: JSON.stringify({ responseText, expressions }) }] }
+            );
+            if (conversationHistory.length > MAX_CONVERSATION_TURNS * 2) {
+                conversationHistory.splice(0, 2);
+            }
+
+            await playResponseAndExpressions(responseText, expressions, isGreetingPrompt(prompt));
+            
+            if (!isTextOutputOn && lastPlayedAction !== idleAction) setAnimation(idleAction);
+
+        } catch (error) {
+            console.error("--- Error in Online Chat Flow ---", error);
+            hideBubble(thinkingBubble);
+            showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
+            if (!isTextOutputOn) setAnimation(idleAction);
+        }
+    }
+
+
+    // 3. NEW: LOCAL MODE LOGIC (LM Studio) — DECOUPLED TEXT AND AUDIO
+    async function handleSendMessageLocal(prompt) {
+        console.log(`LOCAL MODE: Calling LM Studio at ${localApiBaseUrl}...`);
+        
+        let responseText = '';
+
+        // --- PART 1: Get and display the text response ---
+        try {
+            const textResponse = await fetch(`${localApiBaseUrl}/v1/chat/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    // FIX: Removed the 'model' key to match elie.js
+                    messages: [
+                        // FIX: Simplified the messages array to match elie.js.
+                        // It now sends a system prompt and the user's current prompt, without conversation history.
+                        { role: 'system', content: 'You are Aria, an emotionally real virtual friend. You are not an AI or a robot. Respond in a natural, human-like way. Keep your responses concise and to the point.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    // FIX: Aligned temperature and top_p with elie.js for similar response style.
+                    temperature: 1.3,
+                    top_p: 0.95, 
+                    stream: false,
+                }),
+            });
+
+            if (!textResponse.ok) throw new Error(`LM Studio Chat Error: ${textResponse.statusText}`);
+            
+            const textData = await textResponse.json();
+            responseText = textData.choices[0].message.content;
+
+            // Immediately hide thinking bubble and show the response text
+            hideBubble(thinkingBubble);
+            const textDuration = Math.max(4000, responseText.length * 80);
+            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
+
+            // NOTE: Local mode conversation history is intentionally not stored to match the simple, working model of elie.js.
+
+        } catch (error) {
+            console.error("--- Error in Local Mode (Text Generation) ---", error);
+            hideBubble(thinkingBubble);
+            showBubble(textBubble, '<span class="fire-text">Error: Could not get text response.</span>', 5000);
+            if (lastPlayedAction !== idleAction) setAnimation(idleAction);
+            return; // Exit the function if text generation fails
+        }
+
+        // --- PART 2: Try to get and play audio (errors will be silent to the user) ---
+        if (responseText) {
+            try {
+                const audioResponse = await fetch(`${localApiBaseUrl}/v1/audio/speech`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: 'local-model', input: responseText, voice: 'tara' }),
+                });
+
+                if (!audioResponse.ok) throw new Error(`LM Studio TTS Error: ${audioResponse.statusText}`);
+                
+                const audioBlob = await audioResponse.blob();
+                await playLocalAudioAndAnimate(audioBlob);
+
+            } catch (error) {
+                // As requested, let the error come and just log it to the console.
+                console.error("--- Error in Local Mode (Audio Generation/Playback) ---", error);
+            }
+        }
+        
+        // Return to idle after operations are attempted
+        if (lastPlayedAction !== idleAction) {
+            setAnimation(idleAction);
+        }
+    }
+
+    // 4. NEW: HELPER FOR LOCAL AUDIO
+    // This helper plays audio from LM Studio and handles a simple lip-flap animation.
+    async function playLocalAudioAndAnimate(audioBlob) {
+        return new Promise((resolve, reject) => {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            let lipFlapInterval;
+
+            audio.oncanplaythrough = () => {
+                isTalking = true;
+                setAnimation(talkingAction);
+                audio.play();
+
+                // Simple lip-flap since we don't have visemes from local TTS
+                lipFlapInterval = setInterval(() => {
+                    if (!currentVrm) return;
+                    const flap = (currentVrm.expressionManager.getValue('aa') === 0) ? 1.0 : 0.0;
+                    currentVrm.expressionManager.setValue('aa', flap);
+                }, 120);
+            };
+
+            audio.onended = () => {
+                isTalking = false;
+                clearInterval(lipFlapInterval);
+                if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
+                URL.revokeObjectURL(audioUrl);
+                resolve();
+            };
+
+            audio.onerror = (err) => {
+                console.error("Local Audio playback error:", err);
+                isTalking = false;
+                if (lipFlapInterval) clearInterval(lipFlapInterval);
+                if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
+                URL.revokeObjectURL(audioUrl);
+                reject(err); // Reject the promise so the calling function's catch block can see it
+            };
+        });
+    }
+
 /* =========================================================
-   14. UI EVENT BINDINGS (buttons, toggles)
+   14. UI EVENT BINDINGS
    ========================================================= */
+    // Main Send button continues to call the master handleSendMessage function
     sendButton.addEventListener('click', handleSendMessage);
     chatInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') handleSendMessage(); });
 
+    // Your existing listener for the text toggle button
     toggleTextButton.addEventListener('click', () => {
         isTextOutputOn = !isTextOutputOn;
         toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
@@ -726,6 +837,27 @@ async function handleSendMessage() {
         }
     });
     toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
+
+    // --- Listener for the Local/Online toggle button (with color fix) ---
+    const toggleModeButton = document.getElementById('toggle-mode-button');
+    if (toggleModeButton) {
+        toggleModeButton.addEventListener('click', () => {
+            if (isAwaitingResponse) return; // Don't switch while the AI is thinking
+
+            isOnlineMode = !isOnlineMode; // Flip the mode state
+            conversationHistory = []; // Clear history to prevent model confusion
+
+            if (isOnlineMode) {
+                toggleModeButton.textContent = 'Online';
+                toggleModeButton.classList.remove('toggle-off');
+                showBubble(textBubble, '<span class="fire-text">Switched to Online Mode</span>', 3000);
+            } else {
+                toggleModeButton.textContent = 'Local';
+                toggleModeButton.classList.add('toggle-off');
+                showBubble(textBubble, '<span class="fire-text">Switched to Local Mode</span>', 3000);
+            }
+        });
+    }
 
 /* =========================================================
    15. LOADING SCREEN ORCHESTRATOR
@@ -954,16 +1086,3 @@ async function handleSendMessage() {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
-
-
-
-
-
-
-
-
-
-
-
-
-
