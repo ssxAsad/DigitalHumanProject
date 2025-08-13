@@ -598,7 +598,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         hideBubble(textBubble);
 
-        // --- FIX IS HERE: Only show thinking animation/bubble if NOT in text mode ---
         if (!isTextOutputOn) {
             showBubble(thinkingBubble, `<span class="fire-text">Thinking...</span>`, Infinity);
             setAnimation(thinkingIntroAction);
@@ -637,11 +636,21 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 body: JSON.stringify(requestBody)
             });
 
-            if (!response.ok) { throw new Error(`Gemini API request failed with status ${response.status}`); }
+            // --- FIX IS HERE: More robust error handling for the API response ---
+            if (!response.ok) {
+                let errorDetails = `Gemini API request failed with status ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorDetails += `: ${JSON.stringify(errorData.error?.message || errorData)}`;
+                } catch (e) { /* Ignore if error response is not JSON */ }
+                throw new Error(errorDetails);
+            }
 
             const data = await response.json();
 
             if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                // Log the actual problematic response for easier debugging
+                console.error("--- Invalid Gemini Response Received ---", data);
                 throw new Error("Invalid response structure from Gemini API.");
             }
             const { responseText, expressions } = JSON.parse(data.candidates[0].content.parts[0].text);
@@ -666,7 +675,8 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             if (!isTextOutputOn) {
                 hideBubble(thinkingBubble);
             }
-            showBubble(textBubble, `<span class="fire-text">${error.message}</span>`, 6000);
+            // Display a more user-friendly error message
+            showBubble(textBubble, `<span class="fire-text">Sorry, I had a problem thinking. Please try again.</span>`, 6000);
         } finally {
             isAwaitingResponse = false;
             chatInput.disabled = false;
@@ -919,6 +929,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
