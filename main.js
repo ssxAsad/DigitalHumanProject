@@ -995,6 +995,11 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         mixer = new THREE.AnimationMixer(currentVrm.scene);
         
+        // Create a new, separate loader just for animations to prevent progress bar errors
+        const animationLoader = new GLTFLoader();
+        animationLoader.register((parser) => new VRMLoaderPlugin(parser));
+        animationLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+        
         mixer.addEventListener('finished', (event) => {
             const finishedAction = event.action;
             if (finishedAction === thinkingIntroAction) {
@@ -1017,7 +1022,8 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         const loadFile = async (url, name, index) => {
             try {
-                const gltf = await loader.loadAsync(url);
+                // Use the new animationLoader here
+                const gltf = await animationLoader.loadAsync(url); 
                 updateProgress(progressWeights.model + ((index + 1) * progressPerAnimation), `Loading: ${name}`);
                 return gltf;
             } catch (e) {
@@ -1035,7 +1041,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             loadFile(animationFiles[3], 'Waving', 3),
             loadFile(animationFiles[4], 'Thinking', 4)
         ]);
-
+        
         if (idleAnimGltf) {
             const idleClip = createVRMAnimationClip(idleAnimGltf.userData.vrmAnimations[0], currentVrm);
             idleAction = mixer.clipAction(idleClip);
@@ -1148,6 +1154,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
