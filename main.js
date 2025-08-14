@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import { AnimationUtils } from 'three';
+import { VRMSpringBoneManager } from '@pixiv/three-vrm-springbone';
 
 /* =========================================================
    2. DOM READY
@@ -31,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const elevenLabsApiKey = ""; 
     const voiceId = "BpjGufoPiobT79j2vtj4";
     const geminiApiKey = ""; 
-    const localApiBaseUrl = "https://b14469d10fb0.ngrok-free.app";
+    const localApiBaseUrl = "https://bb30f08fd333.ngrok-free.app";
 
 /* =========================================================
    5. STATE VARIABLES
@@ -152,9 +153,9 @@ document.addEventListener('DOMContentLoaded', () => {
         renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
 
-    const ambientLight = new THREE.AmbientLight(0xFFFFFF, 1.0);
+    const ambientLight = new THREE.AmbientLight(0xFFFFFF, 0.7);
     scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1.2);
+    const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.8);
     directionalLight.position.set(1, 1, 1).normalize();
     scene.add(directionalLight);
 
@@ -183,15 +184,15 @@ document.addEventListener('DOMContentLoaded', () => {
    9. VRM LOADING, ANIMATIONS & EXPRESSION HELPERS (SAFE)
    ========================================================= */
     let currentVrm = null;
+    let springBoneManager = null;
     let mixer = null;
     const clock = new THREE.Clock();
     let idleAction = null;
     let idle1Action = null;
     let talkingAction = null;
-    let textingIntroAction = null;
+    let initGreetAction = null;
     let thinkingIntroAction = null;
     let thinkingLoopAction = null;
-    let textingLoopAction = null;
     let wavingAction = null;
     let lastPlayedAction = null;
     let idle1Duration = 0;
@@ -239,7 +240,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (blinkTimeout) clearTimeout(blinkTimeout);
             const nextBlinkDelay = Math.random() * 4000 + 2000;
             blinkTimeout = setTimeout(() => {
-                const canBlink = lastPlayedAction === idleAction || lastPlayedAction === textingIntroAction || lastPlayedAction === textingLoopAction;
+                // MODIFIED: The condition no longer checks for texting animations.
+                const canBlink = lastPlayedAction === idleAction;
                 if (canBlink && !isTalking && !isExpressionActive) {
                     smoothlySetExpression(vrm, 'blink', 1.0, 100);
                     setTimeout(() => smoothlySetExpression(vrm, 'blink', 0.0, 150), 120);
@@ -302,10 +304,10 @@ document.addEventListener('DOMContentLoaded', () => {
             actionToPlay.reset().fadeIn(fadeDuration).play();
         }
         
-        if (actionToPlay === idleAction) idleAction.setEffectiveTimeScale(0.8);
-        else if (actionToPlay === textingIntroAction) textingIntroAction.setEffectiveTimeScale(0.8);
-        else if (actionToPlay === textingLoopAction) textingLoopAction.setEffectiveTimeScale(0.8);
-        else { 
+        // MODIFIED: Removed time scale adjustments for texting animations.
+        if (actionToPlay === idleAction) {
+            idleAction.setEffectiveTimeScale(0.8);
+        } else { 
             actionToPlay.setEffectiveTimeScale(1.0);
         }
         
@@ -427,6 +429,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const delta = clock.getDelta();
         
         if (mixer) mixer.update(delta);
+        if (springBoneManager) {
+            springBoneManager.update(delta);
+        }
 
         if (currentVrm && currentVrm.expressionManager) {
             ALLOWED_EXPRESSIONS_FOR_AI.forEach(name => {
@@ -706,28 +711,40 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
     }
 
 
-    // 3. NEW: LOCAL MODE LOGIC (LM Studio) — DECOUPLED TEXT AND AUDIO
+    // 3. NEW: LOCAL MODE LOGIC (LM Studio) — THIS IS THE UPDATED FUNCTION
     async function handleSendMessageLocal(prompt) {
         console.log(`LOCAL MODE: Calling LM Studio at ${localApiBaseUrl}...`);
         
         let responseText = '';
+        // This new variable will hold the emotion chosen by the AI.
+        let emotion = 'relaxed'; // Default to a neutral expression.
 
-        // --- PART 1: Get and display the text response ---
+        // --- PART 1: Get and process the structured response from the AI ---
         try {
+            // This is a new, more powerful system prompt.
+            // We are instructing the local model to return JSON with an emotion,
+            // similar to how your online mode works.
+            const expressionList = ['Proud', 'Shy', 'Worry', 'Surprise', 'sad', 'happy', 'angry', 'relaxed'].join(', ');
+            const systemPrompt = `You are Aria, an emotionally real virtual friend.
+            IMPORTANT: Your entire response MUST be a single, valid JSON object.
+            The JSON object must have this exact structure:
+            {
+              "responseText": "Your natural, human-like response goes here.",
+              "emotion": "expression_name"
+            }
+            - "responseText": The text you want to say.
+            - "emotion": Choose ONE emotion that best fits your response from this list: [${expressionList}]. For sad topics, use 'Worry' or 'sad'.`;
+
             const textResponse = await fetch(`${localApiBaseUrl}/v1/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    // FIX: Removed the 'model' key to match elie.js
                     messages: [
-                        // FIX: Simplified the messages array to match elie.js.
-                        // It now sends a system prompt and the user's current prompt, without conversation history.
-                        { role: 'system', content: 'You are Aria, an emotionally real virtual friend. You are not an AI or a robot. Respond in a natural, human-like way. Keep your responses concise and to the point.' },
+                        { role: 'system', content: systemPrompt },
                         { role: 'user', content: prompt }
                     ],
-                    // FIX: Aligned temperature and top_p with elie.js for similar response style.
                     temperature: 1.3,
-                    top_p: 0.95, 
+                    top_p: 0.95,
                     stream: false,
                 }),
             });
@@ -735,24 +752,59 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             if (!textResponse.ok) throw new Error(`LM Studio Chat Error: ${textResponse.statusText}`);
             
             const textData = await textResponse.json();
-            responseText = textData.choices[0].message.content;
+            const rawResponse = textData.choices[0].message.content;
 
-            // Immediately hide thinking bubble and show the response text
+            // This new block parses the JSON from the AI's response.
+            try {
+                // Find the JSON part of the response, in case the model adds extra text.
+                const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error("No JSON object found in local AI output.");
+                
+                const parsed = JSON.parse(jsonMatch[0]);
+                responseText = parsed.responseText || "I'm not sure what to say.";
+                emotion = parsed.emotion || 'relaxed'; // Get the emotion from the JSON.
+                
+                console.log(`Local AI Response: "${responseText}", Emotion: "${emotion}"`);
+
+            } catch (e) {
+                console.warn("Local AI did not return valid JSON, using raw text as fallback.", e);
+                responseText = rawResponse; // Fallback to using the raw text if JSON fails.
+            }
+
+            // Hide the thinking bubble and show the final text response.
             hideBubble(thinkingBubble);
             const textDuration = Math.max(4000, responseText.length * 80);
             showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
 
-            // NOTE: Local mode conversation history is intentionally not stored to match the simple, working model of elie.js.
+            // This new block applies the chosen emotion to the model.
+            // It hooks directly into your existing animation system in the render loop.
+            activeEmotionName = emotion;
+            activeEmotionWeight = 1.0;
+            isExpressionActive = true; // Prevents blinking during the expression.
+
+            // Example of how to create a combined expression.
+            // If the AI chose 'Proud', we also add a temporary 'lookRight'.
+            if (emotion === 'Proud') {
+                smoothlySetExpression(currentVrm, 'lookRight', 0.6, 300);
+                setTimeout(() => smoothlySetExpression(currentVrm, 'lookRight', 0.0, 500), 2000);
+            }
+
+            // Reset the expression back to neutral after it has been displayed.
+            setTimeout(() => {
+                isExpressionActive = false;
+                activeEmotionName = 'relaxed';
+            }, textDuration - 500);
+
 
         } catch (error) {
             console.error("--- Error in Local Mode (Text Generation) ---", error);
             hideBubble(thinkingBubble);
             showBubble(textBubble, '<span class="fire-text">Error: Could not get text response.</span>', 5000);
             if (lastPlayedAction !== idleAction) setAnimation(idleAction);
-            return; // Exit the function if text generation fails
+            return; 
         }
 
-        // --- PART 2: Try to get and play audio (errors will be silent to the user) ---
+        // --- PART 2: Audio generation (this part is unchanged) ---
         if (responseText) {
             try {
                 const audioResponse = await fetch(`${localApiBaseUrl}/v1/audio/speech`, {
@@ -767,16 +819,16 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 await playLocalAudioAndAnimate(audioBlob);
 
             } catch (error) {
-                // As requested, let the error come and just log it to the console.
                 console.error("--- Error in Local Mode (Audio Generation/Playback) ---", error);
             }
         }
         
-        // Return to idle after operations are attempted
+        // Return to idle animation when all operations are complete.
         if (lastPlayedAction !== idleAction) {
             setAnimation(idleAction);
         }
     }
+
 
     // 4. NEW: HELPER FOR LOCAL AUDIO
     // This helper plays audio from LM Studio and handles a simple lip-flap animation.
@@ -825,14 +877,16 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
     sendButton.addEventListener('click', handleSendMessage);
     chatInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') handleSendMessage(); });
 
-    // Your existing listener for the text toggle button
+    // MODIFIED: The text toggle button logic is updated.
     toggleTextButton.addEventListener('click', () => {
         isTextOutputOn = !isTextOutputOn;
         toggleTextButton.classList.toggle('toggle-off', !isTextOutputOn);
         if (isTextOutputOn) {
-            if (textingIntroAction) setAnimation(textingIntroAction);
+            // The call to set the texting animation has been removed.
+            // The character will now remain in its current animation state (e.g., idle).
         } else {
             hideBubble(textBubble);
+            // Return to idle animation when text mode is turned off.
             if (idleAction) setAnimation(idleAction);
         }
     });
@@ -903,6 +957,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                         }
                         safeRemoveVrmFromScene(currentVrm);
                         currentVrm = vrm;
+                        springBoneManager = currentVrm.springBoneManager;
                         if (!scene.children.includes(vrm.scene)) scene.add(vrm.scene);
                         vrm.scene.rotation.y = Math.PI;
                         vrm.scene.visible = true;
@@ -940,15 +995,9 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         mixer = new THREE.AnimationMixer(currentVrm.scene);
         
-        // --- THIS BLOCK IS NOW FIXED ---
         mixer.addEventListener('finished', (event) => {
             const finishedAction = event.action;
-            if (finishedAction === textingIntroAction) {
-               textingLoopAction.reset().play();
-               textingIntroAction.crossFadeTo(textingLoopAction, 0.35, true);
-               lastPlayedAction = textingLoopAction; // Keep the state updated
-            }
-            else if (finishedAction === thinkingIntroAction) {
+            if (finishedAction === thinkingIntroAction) {
                setAnimation(thinkingLoopAction);
             }
             else if (finishedAction === wavingAction) {
@@ -962,7 +1011,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
         const animationFiles = [
             './animations/idle.vrma', './animations/idle1.vrma', './animations/talking.vrma',
-            './animations/waving.vrma', './animations/texting.vrma', './animations/thinking.vrma'
+            './animations/waving.vrma', './animations/thinking.vrma'
         ];
         const progressPerAnimation = progressWeights.animations / animationFiles.length;
 
@@ -978,14 +1027,13 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         };
 
         const [
-            idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, textingAnimGltf, thinkingAnimGltf
+            idleAnimGltf, idle1AnimGltf, talkingAnimGltf, wavingAnimGltf, thinkingAnimGltf
         ] = await Promise.all([
             loadFile(animationFiles[0], 'Idle', 0),
             loadFile(animationFiles[1], 'Idle Variant', 1),
             loadFile(animationFiles[2], 'Talking', 2),
             loadFile(animationFiles[3], 'Waving', 3),
-            loadFile(animationFiles[4], 'Texting', 4),
-            loadFile(animationFiles[5], 'Thinking', 5)
+            loadFile(animationFiles[4], 'Thinking', 4)
         ]);
 
         if (idleAnimGltf) {
@@ -1008,15 +1056,12 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
         if (thinkingAnimGltf) {
            let originalClip = createVRMAnimationClip(thinkingAnimGltf.userData.vrmAnimations[0], currentVrm);
            const fps = 60;
-           // Split the clip: 0-25% for intro, 25-100% for loop
            const introEndFrame = Math.floor(originalClip.duration * 0.40 * fps);
            const clipEndFrame = Math.floor(originalClip.duration * fps);
            const introClip = AnimationUtils.subclip(originalClip, 'thinkingIntro', 0, introEndFrame, fps);
            const loopClip = AnimationUtils.subclip(originalClip, 'thinkingLoop', introEndFrame, clipEndFrame, fps);
-           // Setup the intro action to play once
            thinkingIntroAction = mixer.clipAction(introClip);
            thinkingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
-           // Setup the loop action to play in a ping-pong style
            thinkingLoopAction = mixer.clipAction(loopClip);
            thinkingLoopAction.setLoop(THREE.LoopPingPong);
         }
@@ -1031,19 +1076,6 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             wavingDuration = wavingClip.duration || 0;
         } else {
             wavingAction = null; wavingDuration = 0;
-        }
-        if (textingAnimGltf) {
-            let originalClip = createVRMAnimationClip(textingAnimGltf.userData.vrmAnimations[0], currentVrm);
-            originalClip.tracks = originalClip.tracks.filter(track => !track.name.includes('morphTargetInfluences'));
-            const fps = 30;
-            const introEndFrame = Math.floor(originalClip.duration * 0.25 * fps);
-            const clipEndFrame = Math.floor(originalClip.duration * fps);
-            const introClip = AnimationUtils.subclip(originalClip, 'textingIntro', 0, introEndFrame, fps);
-            const loopClip = AnimationUtils.subclip(originalClip, 'textingLoop', introEndFrame, clipEndFrame, fps);
-            textingIntroAction = mixer.clipAction(introClip);
-            textingIntroAction.setLoop(THREE.LoopOnce).clampWhenFinished = true;
-            textingLoopAction = mixer.clipAction(loopClip);
-            textingLoopAction.setLoop(THREE.LoopPingPong).setEffectiveTimeScale(0.8);
         }
         
         scheduleIdle1();
@@ -1063,6 +1095,36 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
                 cancelAnimationFrame(animationFrameId);
                 if (wavingAction) {
                     setAnimation(wavingAction);
+                    
+                    activeEmotionName = 'happy';
+                    activeEmotionWeight = 1.0;
+                    
+                    // After 2.5 seconds, start the smooth fade-out process.
+                    setTimeout(() => {
+                        const fadeDuration = 500; // Fade over 0.5 seconds
+                        const startTime = performance.now();
+
+                        function fadeOutStep() {
+                            const elapsedTime = performance.now() - startTime;
+                            const progress = Math.min(elapsedTime / fadeDuration, 1.0);
+                            
+                            // Decrease the weight of the 'happy' expression from 1 to 0.
+                            activeEmotionWeight = 1.0 - progress;
+
+                            if (progress < 1.0) {
+                                // Continue fading
+                                requestAnimationFrame(fadeOutStep);
+                            } else {
+                                // Once faded out completely, switch to relaxed.
+                                activeEmotionName = 'relaxed';
+                                activeEmotionWeight = 1.0;
+                            }
+                        }
+                        
+                        // Start the fade-out animation frame loop
+                        requestAnimationFrame(fadeOutStep);
+
+                    }, 2500); 
                 }
             }, 750);
 
@@ -1086,3 +1148,16 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
+
+
+
+
+
+
+
+
+
+
+
+
