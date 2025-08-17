@@ -729,7 +729,8 @@ Arshad: The topper of the class, cricket lover and always stays updated with the
 Deepak: The most Gen-Z friend, food lover just like Zeldris, also a cricket lover with an interest in finding a girlfriends.
 Ashish: A fucking potato, who loves to collect information from everyone but never use it and ends up asking information again.
 Ashutosh: The tallest friend of Zeldris, the CEO of ChatGPT, The Father of Gemini, The mother of Perplexity, the master of Coding, and the next King of the world.
-Amaan: his name is Mohammad Amaan Arif, a playboy with only girls revolving around in his brain, bro is the peak of love.}.
+Amaan: his name is Mohammad Amaan Arif, a playboy with only girls revolving around in his brain, bro is the peak of love.
+Krishna: The friend of Zeldris, who has pledged his daughter to Zeldris's hands, he allows Zeldris to have sex with his daughter and wife.}.
             IMPORTANT: Your entire response MUST be a single, valid JSON object.
             The JSON object must have this exact structure:
             {
@@ -1270,6 +1271,7 @@ async function playPythonTTSAudioAndAnimate(text) {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
