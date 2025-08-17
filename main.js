@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const elevenLabsApiKey = ""; 
     const voiceId = "BpjGufoPiobT79j2vtj4";
     const geminiApiKey = ""; 
-    const localApiBaseUrl = "https://bb30f08fd333.ngrok-free.app";
+    const localApiBaseUrl = "https://878e908170d5.ngrok-free.app";
 
 /* =========================================================
    5. STATE VARIABLES
@@ -1154,6 +1154,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
