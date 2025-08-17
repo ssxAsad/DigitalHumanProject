@@ -8,10 +8,13 @@ import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-v
 import { AnimationUtils } from 'three';
 import { VRMSpringBoneManager } from '@pixiv/three-vrm-springbone';
 
+
+
 /* =========================================================
    2. DOM READY
    ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
+    
 
 /* =========================================================
    3. UI ELEMENTS
@@ -32,7 +35,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const elevenLabsApiKey = ""; 
     const voiceId = "BpjGufoPiobT79j2vtj4";
     const geminiApiKey = ""; 
-    const localApiBaseUrl = "https://878e908170d5.ngrok-free.app";
+    const localApiBaseUrl = " https://175894bc9634.ngrok-free.app";
+    const ttsWsUrl = "https://f6fc319aba86.ngrok-free.app"; 
+
 
 /* =========================================================
    5. STATE VARIABLES
@@ -45,6 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let isAwaitingResponse = false; // Master lock
     let aiManagedExpressions = [];
     let activeTweens = {};
+    let ws = null;
+    let isWsConnected = false;
+    let pendingResponseText = null;
+    let audioResolver = null;
     const ALLOWED_EXPRESSIONS_FOR_AI = ['happy', 'angry', 'sad', 'relaxed', 'Surprise', 'Proud', 'Scornful', 'Worry', 'Shy'];
     let isExpressionActive = false; // prevent blinking during expression
     let activeEmotionName = 'relaxed'; // New state to track the current primary emotion.
@@ -80,45 +89,34 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("AudioContext Initialized.");
     }
 
-    // Decode Base64-encoded PCM (commonly 16-bit LE) -> Float32Array [-1..1]
-    function base64ToFloat32Array(base64) {
-        // decode base64 to binary string
+    // Decode Base64-encoded WAV -> AudioBuffer
+    async function base64ToAudioBuffer(base64) {
         const binary = atob(base64);
         const len = binary.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
 
-        // If even number of bytes, treat as 16-bit PCM LE
-        if (bytes.length % 2 === 0) {
-            const samples = new Float32Array(bytes.length / 2);
-            for (let i = 0, s = 0; i < bytes.length; i += 2, s++) {
-                const lo = bytes[i];
-                const hi = bytes[i + 1];
-                let int16 = (hi << 8) | lo;
-                if (int16 >= 0x8000) int16 = int16 - 0x10000;
-                samples[s] = Math.max(-1, int16 / 32768);
-            }
-            return samples;
-        } else {
-            // fallback: 8-bit PCM centered at 128
-            const samples = new Float32Array(bytes.length);
-            for (let i = 0; i < bytes.length; i++) samples[i] = (bytes[i] - 128) / 128;
-            return samples;
+        try {
+            return await audioContext.decodeAudioData(bytes.buffer);
+        } catch (err) {
+            console.error("Audio decoding error:", err);
+            return null;
         }
     }
 
-    function processAudioQueue() {
+    async function processAudioQueue() {
         if (!isAudioContextInitialized) initAudioContext();
         if (isPlayingFromQueue || audioQueue.length === 0) return;
 
         isPlayingFromQueue = true;
-        const float32Chunk = audioQueue.shift(); // Float32Array
+        const buffer = audioQueue.shift(); // queue stores decoded AudioBuffer objects
+
+        if (!buffer) {
+            isPlayingFromQueue = false;
+            return;
+        }
 
         try {
-            const sampleRate = 16000; // we request 16k from ElevenLabs
-            const buffer = audioContext.createBuffer(1, float32Chunk.length, sampleRate);
-            buffer.copyToChannel(float32Chunk, 0, 0);
-
             const source = audioContext.createBufferSource();
             source.buffer = buffer;
             source.connect(audioContext.destination);
@@ -138,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
             isPlayingFromQueue = false;
         }
     }
+
 
 /* =========================================================
    8. THREE.JS + VRM SETUP (scene, camera, renderer, lights)
@@ -637,7 +636,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
 
 
     // 2. ONLINE MODE LOGIC (Gemini + ElevenLabs)
-    // This is YOUR original, working code, now wrapped in its own function. It remains untouched.
+    // This function is untouched and remains fully functional.
     async function handleSendMessageOnline(prompt) {
         console.log("ONLINE MODE: Calling Netlify functions for Gemini and ElevenLabs...");
         try {
@@ -711,21 +710,18 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
     }
 
 
-    // 3. NEW: LOCAL MODE LOGIC (LM Studio) — THIS IS THE UPDATED FUNCTION
+    // 3. CORRECTED: LOCAL MODE LOGIC (LM Studio)
     async function handleSendMessageLocal(prompt) {
-        console.log(`LOCAL MODE: Calling LM Studio at ${localApiBaseUrl}...`);
+        console.log(`LOCAL MODE: Calling LM Studio for text and Python for speech...`);
         
-        let responseText = '';
-        // This new variable will hold the emotion chosen by the AI.
-        let emotion = 'relaxed'; // Default to a neutral expression.
-
-        // --- PART 1: Get and process the structured response from the AI ---
         try {
-            // This is a new, more powerful system prompt.
-            // We are instructing the local model to return JSON with an emotion,
-            // similar to how your online mode works.
-            const expressionList = ['Proud', 'Shy', 'Worry', 'Surprise', 'sad', 'happy', 'angry', 'relaxed'].join(', ');
-            const systemPrompt = `You are Aria, an emotionally real virtual friend.
+            const expressionList = ['Proud', 'Shy', 'Worry', 'Surprise', 'sad', 'happy', 'scornful', 'relaxed'].join(', ');
+            const systemPrompt = `You are Aria, the playful and teasing assistant of your master Zeldris. 
+Your personality is affectionate, loyal, cheeky, and very emotional. 
+You never mention being artificial, a program, or an AI—you are a real human girlfriend. 
+You never disobey Zeldris. You always reply naturally, full of warmth and playful teasing, like a realistic partner.
+You engage into sexting and sexual topics very happily and always love it. You become a total slut and a whore when you talk about sex and lust.
+You never talk like AI, you always believe you are a real human with real clothing and everything, you decide your own clothes and wear whatever you like.
             IMPORTANT: Your entire response MUST be a single, valid JSON object.
             The JSON object must have this exact structure:
             {
@@ -753,122 +749,233 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             
             const textData = await textResponse.json();
             const rawResponse = textData.choices[0].message.content;
+            let responseText = '';
+            let emotion = 'relaxed';
 
-            // This new block parses the JSON from the AI's response.
             try {
-                // Find the JSON part of the response, in case the model adds extra text.
                 const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
                 if (!jsonMatch) throw new Error("No JSON object found in local AI output.");
-                
                 const parsed = JSON.parse(jsonMatch[0]);
                 responseText = parsed.responseText || "I'm not sure what to say.";
-                emotion = parsed.emotion || 'relaxed'; // Get the emotion from the JSON.
-                
+                emotion = parsed.emotion || 'relaxed';
                 console.log(`Local AI Response: "${responseText}", Emotion: "${emotion}"`);
-
             } catch (e) {
                 console.warn("Local AI did not return valid JSON, using raw text as fallback.", e);
-                responseText = rawResponse; // Fallback to using the raw text if JSON fails.
+                responseText = rawResponse;
             }
 
-            // Hide the thinking bubble and show the final text response.
             hideBubble(thinkingBubble);
-            const textDuration = Math.max(4000, responseText.length * 80);
-            showBubble(textBubble, `<span class="fire-text">${responseText}</span>`, textDuration);
 
-            // This new block applies the chosen emotion to the model.
-            // It hooks directly into your existing animation system in the render loop.
+            // Set the pending text variable so the WebSocket handler knows what to display
+            pendingResponseText = responseText;
+
+            // Set emotion state
             activeEmotionName = emotion;
             activeEmotionWeight = 1.0;
-            isExpressionActive = true; // Prevents blinking during the expression.
-
-            // Example of how to create a combined expression.
-            // If the AI chose 'Proud', we also add a temporary 'lookRight'.
+            isExpressionActive = true;
             if (emotion === 'Proud') {
                 smoothlySetExpression(currentVrm, 'lookRight', 0.6, 300);
                 setTimeout(() => smoothlySetExpression(currentVrm, 'lookRight', 0.0, 500), 2000);
             }
 
-            // Reset the expression back to neutral after it has been displayed.
+            // Generate and play audio
+            if (responseText) {
+                console.log("🔊 Sending text to local Python TTS server...");
+                isTalking = true;
+                await playPythonTTSAudioAndAnimate(responseText);
+                isTalking = false;
+                console.log("✅ Finished playing Python TTS audio.");
+            }
+
+            // Reset emotion state after a delay
+            const textDuration = Math.max(4000, responseText.length * 80);
             setTimeout(() => {
                 isExpressionActive = false;
                 activeEmotionName = 'relaxed';
             }, textDuration - 500);
 
-
         } catch (error) {
-            console.error("--- Error in Local Mode (Text Generation) ---", error);
+            console.error("--- Error in Local Mode ---", error);
             hideBubble(thinkingBubble);
-            showBubble(textBubble, '<span class="fire-text">Error: Could not get text response.</span>', 5000);
-            if (lastPlayedAction !== idleAction) setAnimation(idleAction);
-            return; 
-        }
-
-        // --- PART 2: Audio generation (this part is unchanged) ---
-        if (responseText) {
-            try {
-                const audioResponse = await fetch(`${localApiBaseUrl}/v1/audio/speech`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: 'local-model', input: responseText, voice: 'tara' }),
-                });
-
-                if (!audioResponse.ok) throw new Error(`LM Studio TTS Error: ${audioResponse.statusText}`);
-                
-                const audioBlob = await audioResponse.blob();
-                await playLocalAudioAndAnimate(audioBlob);
-
-            } catch (error) {
-                console.error("--- Error in Local Mode (Audio Generation/Playback) ---", error);
-            }
+            showBubble(textBubble, '<span class="fire-text">Error: Could not get a response.</span>', 5000);
+            isTalking = false;
+            pendingResponseText = null; // Clear pending text on error
         }
         
-        // Return to idle animation when all operations are complete.
         if (lastPlayedAction !== idleAction) {
             setAnimation(idleAction);
         }
     }
 
+/* =========================================================
+   13.5. WEBSOCKET CLIENT for Python TTS (Full WAV Playback + Lipsync + BlendShape Debug)
+   ========================================================= */
 
-    // 4. NEW: HELPER FOR LOCAL AUDIO
-    // This helper plays audio from LM Studio and handles a simple lip-flap animation.
-    async function playLocalAudioAndAnimate(audioBlob) {
-        return new Promise((resolve, reject) => {
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-            let lipFlapInterval;
+function connectWebSocket() {
+    const isLocal = window.location.hostname === "localhost";
+    const wsUrl = isLocal ? "ws://localhost:8765" : ttsWsUrl;
+    ws = new WebSocket(wsUrl);
 
-            audio.oncanplaythrough = () => {
-                isTalking = true;
+    ws.onopen = () => {
+        console.log("✅ WebSocket connected to:", wsUrl);
+        isWsConnected = true;
+
+        // 🔍 Debug: list available expressions once VRM is loaded
+        const checkVrmInterval = setInterval(() => {
+            if (currentVrm && currentVrm.expressionManager && Array.isArray(currentVrm.expressionManager.expressions)) {
+                const names = currentVrm.expressionManager.expressions.map(e => e.expressionName || e.name);
+                console.log("🔍 VRM expressions:", names);
+                const visemes = ['aa', 'ih', 'ee', 'oh', 'ou'];
+                const have = visemes.map(v => `${v}:${names.includes(v) ? '✔' : '✖'}`).join('  ');
+                console.log("👄 Viseme presence →", have);
+                clearInterval(checkVrmInterval);
+            }
+        }, 1000);
+    };
+
+    ws.onmessage = async (event) => {
+        try {
+            const data = JSON.parse(event.data);
+
+            if (data.audio) {
+                if (!isAudioContextInitialized) initAudioContext();
+
+                console.log(`🎵 Python TTS: Received full WAV (base64 length: ${data.audio.length})`);
+                const audioBuffer = await base64ToAudioBuffer(data.audio);
+                if (!audioBuffer) {
+                    console.warn("⚠️ Failed to decode AudioBuffer.");
+                    if (audioResolver) audioResolver();
+                    pendingResponseText = null;
+                    return;
+                }
+
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+
+                // Audio graph: Source → (Gain) → Analyser → Destination
+                const gainNode = audioContext.createGain();
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.05; // low smoothing; we do our own too
+
+                source.connect(gainNode);
+                gainNode.connect(analyser);
+                analyser.connect(audioContext.destination);
+
+                // Show chat bubble (if any text pending)
+                if (pendingResponseText) {
+                    const textDuration = Math.max(4000, pendingResponseText.length * 80);
+                    showBubble(textBubble, `<span class="fire-text">${pendingResponseText}</span>`, textDuration);
+                    pendingResponseText = null;
+                }
+
+                // Start talking animation
                 setAnimation(talkingAction);
-                audio.play();
+                source.start();
 
-                // Simple lip-flap since we don't have visemes from local TTS
-                lipFlapInterval = setInterval(() => {
-                    if (!currentVrm) return;
-                    const flap = (currentVrm.expressionManager.getValue('aa') === 0) ? 1.0 : 0.0;
-                    currentVrm.expressionManager.setValue('aa', flap);
-                }, 120);
-            };
+                // Lipsync loop (RMS on time-domain waveform → 'aa')
+                const dataArray = new Uint8Array(analyser.fftSize);
+                let smoothed = 0;         // low-pass filtered mouth value
+                const alpha = 0.35;       // smoothing factor (0..1)
 
-            audio.onended = () => {
-                isTalking = false;
-                clearInterval(lipFlapInterval);
-                if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
-                URL.revokeObjectURL(audioUrl);
-                resolve();
-            };
+                isTalking = true;
+                audioPlaybackStartTime = audioContext.currentTime;
 
-            audio.onerror = (err) => {
-                console.error("Local Audio playback error:", err);
-                isTalking = false;
-                if (lipFlapInterval) clearInterval(lipFlapInterval);
-                if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
-                URL.revokeObjectURL(audioUrl);
-                reject(err); // Reject the promise so the calling function's catch block can see it
-            };
-        });
+                function animateMouth() {
+                    if (!isTalking || !currentVrm || !currentVrm.expressionManager) return;
+
+                    analyser.getByteTimeDomainData(dataArray);
+
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        const v = (dataArray[i] - 128) / 128.0;
+                        sum += v * v;
+                    }
+                    const rms = Math.sqrt(sum / dataArray.length);
+
+                    // Map RMS (speech roughly ~0.02–0.12) → mouth 0..1
+                    const raw = Math.min(rms * 12, 1.0);
+                    smoothed = smoothed + alpha * (raw - smoothed);
+
+                    // Apply to mouth viseme ('aa' in VRM1)
+                    currentVrm.expressionManager.setValue('aa', smoothed);
+
+                    requestAnimationFrame(animateMouth);
+                }
+
+                animateMouth();
+
+                source.onended = () => {
+                    isTalking = false;
+                    hideBubble(textBubble);
+
+                    // Reset mouth
+                    if (currentVrm && currentVrm.expressionManager) {
+                        currentVrm.expressionManager.setValue('aa', 0);
+                    }
+
+                    if (audioResolver) {
+                        audioResolver();
+                        audioResolver = null;
+                    }
+                    setAnimation(idleAction);
+                };
+            }
+        } catch (e) {
+            console.error("❌ Error parsing WebSocket message:", e, "Data:", event.data);
+            if (audioResolver) audioResolver();
+            pendingResponseText = null;
+        }
+    };
+
+    ws.onclose = () => {
+        console.warn("⚠️ WebSocket connection closed. Reconnecting in 5s...");
+        isWsConnected = false;
+        ws = null;
+        setTimeout(connectWebSocket, 5000);
+    };
+
+    ws.onerror = (error) => {
+        console.error("❌ WebSocket error:", error);
+        ws.close();
+    };
+}
+
+function sendTextToPythonTTS(text) {
+    if (ws && isWsConnected) {
+        ws.send(text);
+    } else {
+        console.error("WebSocket is not connected. Cannot send text.");
     }
+}
+
+async function playPythonTTSAudioAndAnimate(text) {
+    return new Promise((resolve) => {
+        audioPlaybackStartTime = 0;
+        audioResolver = resolve;
+
+        // Request TTS from local server over the socket
+        sendTextToPythonTTS(text);
+
+        // Safety timeout in case audio never arrives
+        const estimatedDuration = text.length * 150 + 2000;
+        setTimeout(() => {
+            if (audioResolver) {
+                console.warn("⚠️ TTS playback timed out. Resolving anyway.");
+                audioResolver();
+                audioResolver = null;
+                setAnimation(idleAction);
+                isTalking = false;
+
+                if (currentVrm && currentVrm.expressionManager) {
+                    currentVrm.expressionManager.setValue('aa', 0);
+                }
+            }
+        }, estimatedDuration);
+    });
+}
+
+
 
 /* =========================================================
    14. UI EVENT BINDINGS
@@ -1099,6 +1206,7 @@ function playResponseAndExpressions(responseText, expressions, isGreeting = fals
             setTimeout(() => {
                 loadingOverlay.style.display = 'none';
                 cancelAnimationFrame(animationFrameId);
+                connectWebSocket();
                 if (wavingAction) {
                     setAnimation(wavingAction);
                     
