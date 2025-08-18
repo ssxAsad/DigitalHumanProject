@@ -35,8 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const elevenLabsApiKey = ""; 
     const voiceId = "BpjGufoPiobT79j2vtj4";
     const geminiApiKey = ""; 
-    const localApiBaseUrl = " https://175894bc9634.ngrok-free.app";
-    const ttsWsUrl = "https://f6fc319aba86.ngrok-free.app"; 
+    const localApiBaseUrl = "https://97716b25159a.ngrok-free.app";
+    const ttsWsUrl = "https://f1c5349132af.ngrok-free.app"; 
 
 
 /* =========================================================
@@ -1271,6 +1271,7 @@ async function playPythonTTSAudioAndAnimate(text) {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
 
 
