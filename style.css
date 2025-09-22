@@ -308,4 +308,56 @@ body, html {
     padding-left: 5px; /* Adds a bit of space from the edge */
     /* .fire-text class from HTML handles the color and gradient */
 }
+/* =======================================
+   8. SUBTITLE STYLES (NEW)
+   ======================================= */
+#subtitle-container {
+    position: absolute;
+    top: 15vh; /* MOVED: Positions the container 15% from the top */
+    left: 50%; /* Center the container horizontally */
+    transform: translateX(-50%);
+    width: 90%; /* Give it a max width on the screen */
+    max-width: 800px; /* Set a reasonable pixel max-width */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px; /* Space between stacked subtitles */
+    pointer-events: none; /* Allows clicks to go through to the canvas */
+    z-index: 10;
+}
 
+.subtitle-bubble {
+    /* --- Theming copied from your .bubble style --- */
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    padding: 12px 20px;
+    border-radius: 20px;
+    max-width: 90%;
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    color: #fff; /* Set a default color */
+
+    /* --- Animation properties --- */
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+.subtitle-bubble.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Ensure fire-text works inside subtitles */
+.subtitle-bubble .fire-text {
+    background: linear-gradient(45deg, #f7772f, #fca311, #f7b733);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+}
