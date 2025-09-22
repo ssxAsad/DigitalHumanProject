@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
    4. API CONFIGURATION
    ========================================================= */
     const localApiBaseUrl = "https://3b5d0f56c206.ngrok-free.app";
-    const ttsWsUrl = "ws://9fe4101e4d7c.ngrok-free.app"; 
+    const ttsWsUrl = "wss://9fe4101e4d7c.ngrok-free.app"; 
 
 
 /* =========================================================
@@ -416,7 +416,7 @@ function animate() {
 
         if (isTalking) {
             // When talking with amplitude-based sync, we apply the non-mouth emotion,
-            // and the `animateMouth` loop (inside ws.onmessage) will control the 'aa' shape.
+            // and the `animateMouth` loop (inside .onmessage) will control the 'aa' shape.
             applyEmotionNonMouth(currentVrm, activeEmotionName, activeEmotionWeight);
         } else {
             // When not talking, apply the full emotion.
@@ -1035,7 +1035,7 @@ async function handleSendMessageLocal(prompt) {
 /* =========================================================
    14.5. SPEECH RECOGNITION (Backend STT)
    ========================================================= */
-    const sttWsUrl = "//5a40fbbdd67b.ngrok-free.app";
+    const sttWsUrl = "wss://5a40fbbdd67b.ngrok-free.app";
     let sttWs = null;
     let isListening = false;
     let audioContextStt = null;
@@ -1391,4 +1391,5 @@ async function handleSendMessageLocal(prompt) {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
 
