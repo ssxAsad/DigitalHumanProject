@@ -34,8 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
 /* =========================================================
    4. API CONFIGURATION
    ========================================================= */
-    const localApiBaseUrl = "http://localhost:1234";
-    const ttsWsUrl = "ws://localhost:8765"; 
+    const localApiBaseUrl = "https://3b5d0f56c206.ngrok-free.app";
+    const ttsWsUrl = "ws://9fe4101e4d7c.ngrok-free.app"; 
 
 
 /* =========================================================
@@ -1035,7 +1035,7 @@ async function handleSendMessageLocal(prompt) {
 /* =========================================================
    14.5. SPEECH RECOGNITION (Backend STT)
    ========================================================= */
-    const sttWsUrl = "ws://localhost:8766";
+    const sttWsUrl = "//5a40fbbdd67b.ngrok-free.app";
     let sttWs = null;
     let isListening = false;
     let audioContextStt = null;
@@ -1391,3 +1391,4 @@ async function handleSendMessageLocal(prompt) {
    17. SCRIPT END
    ========================================================= */
 }); // end DOMContentLoaded
+
